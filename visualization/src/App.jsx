@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import SummaryCard from './components/SummaryCard'
+import CycleAccuracyCard from './components/CycleAccuracyCard'
 import './App.css'
 
 function App() {
@@ -28,7 +30,13 @@ function App() {
   if (loading) {
     return (
       <div className="app">
-        <div className="loading">Loading registration data...</div>
+        <header className="app-header">
+          <h1>Ashlar Registration Visualizer</h1>
+          <p>Registration pipeline performance and accuracy metrics</p>
+        </header>
+        <main className="app-main">
+          <div className="loading">Loading registration data...</div>
+        </main>
       </div>
     )
   }
@@ -36,8 +44,14 @@ function App() {
   if (error) {
     return (
       <div className="app">
-        <div className="error">Error: {error}</div>
-        <p>Make sure report.json is in the public directory or served by the API.</p>
+        <header className="app-header">
+          <h1>Ashlar Registration Visualizer</h1>
+          <p>Registration pipeline performance and accuracy metrics</p>
+        </header>
+        <main className="app-main">
+          <div className="error">Error: {error}</div>
+          <p>Make sure report.json is in the public directory or served by the API.</p>
+        </main>
       </div>
     )
   }
@@ -45,7 +59,13 @@ function App() {
   if (!data) {
     return (
       <div className="app">
-        <div className="error">No data available</div>
+        <header className="app-header">
+          <h1>Ashlar Registration Visualizer</h1>
+          <p>Registration pipeline performance and accuracy metrics</p>
+        </header>
+        <main className="app-main">
+          <div className="error">No data available</div>
+        </main>
       </div>
     )
   }
@@ -57,11 +77,8 @@ function App() {
         <p>Registration pipeline performance and accuracy metrics</p>
       </header>
       <main className="app-main">
-        <div className="summary-card">
-          <h2>Summary</h2>
-          <p>Total Time: {data.summary?.total_time_formatted || 'N/A'}</p>
-          <p>Number of Cycles: {data.summary?.num_cycles || 0}</p>
-        </div>
+        <SummaryCard data={data} />
+        <CycleAccuracyCard data={data} />
       </main>
     </div>
   )
