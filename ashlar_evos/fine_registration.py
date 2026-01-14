@@ -33,12 +33,31 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     np.ndarray
         2D array of the tile
     """
+    # Get image shape
+    shape = reader.get_shape_at_level(0)
+    h_max, w_max = shape
+    
     # Adjust position by coarse shift (rounded to nearest pixel)
     y_adj = tile_info.y + int(round(coarse_shift[0]))
     x_adj = tile_info.x + int(round(coarse_shift[1]))
     
+    # Clamp to valid range
+    y_adj = max(0, min(y_adj, h_max - 1))
+    x_adj = max(0, min(x_adj, w_max - 1))
+    
+    # Adjust tile size if needed
+    tile_h = min(tile_info.height, h_max - y_adj)
+    tile_w = min(tile_info.width, w_max - x_adj)
+    
     # Extract tile
-    tile = reader.get_tile(0, channel, y_adj, x_adj, (tile_info.height, tile_info.width))
+    tile = reader.get_tile(0, channel, y_adj, x_adj, (tile_h, tile_w))
+    
+    # Pad if necessary to maintain original tile size
+    if tile.shape != (tile_info.height, tile_info.width):
+        padded = np.zeros((tile_info.height, tile_info.width), dtype=tile.dtype)
+        padded[:tile.shape[0], :tile.shape[1]] = tile
+        return padded
+    
     return tile
 
 
