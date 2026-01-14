@@ -15,5 +15,6 @@ __version__ = "0.1.0"
 
 from . import reader
 from . import registration
+from . import metadata
 
-__all__ = ['reader', 'registration']
+__all__ = ['reader', 'registration', 'metadata']
