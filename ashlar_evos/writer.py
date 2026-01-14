@@ -45,7 +45,7 @@ def write_pyramidal_ometiff(output_path: Path,
     if channel_names is None:
         channel_names = [f"Channel_{i}" for i in range(len(channels))]
     
-        # Generate pyramid levels with proper downsampling
+    # Generate pyramid levels with proper downsampling
     # Each level is 2x smaller than the previous level (not 4x per iteration)
     pyramid_data = []
     
