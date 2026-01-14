@@ -318,6 +318,9 @@ class EvosRegistrationPipeline:
                 num_pyramid_levels=4
             )
             
+            # Record output file size
+            self.performance_monitor.record_output_file(str(output_file))
+            
             self._print(f"  [OK] Complete: {output_file}")
     
     def run_full_pipeline(self, output_dir: Path, 
@@ -339,6 +342,10 @@ class EvosRegistrationPipeline:
         """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Record input file sizes
+        for cycle_file in self.cycle_files:
+            self.performance_monitor.record_input_file(str(cycle_file))
         
         self._print("=" * 60)
         self._print("Evos Registration Pipeline")

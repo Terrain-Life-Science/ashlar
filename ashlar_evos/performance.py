@@ -32,6 +32,8 @@ class PerformanceMetrics:
     current_memory_mb: float = 0.0
     gpu_available: bool = False
     gpu_cores_used: int = 0
+    input_file_sizes_mb: Dict[str, float] = field(default_factory=dict)
+    output_file_sizes_mb: Dict[str, float] = field(default_factory=dict)
     
     def elapsed_time(self) -> float:
         """Get total elapsed time in seconds."""
@@ -40,6 +42,8 @@ class PerformanceMetrics:
     
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
+        total_input_size = sum(self.input_file_sizes_mb.values())
+        total_output_size = sum(self.output_file_sizes_mb.values())
         return {
             'start_time': datetime.fromtimestamp(self.start_time).isoformat(),
             'end_time': datetime.fromtimestamp(self.end_time).isoformat() if self.end_time else None,
@@ -51,6 +55,10 @@ class PerformanceMetrics:
             'current_memory_mb': self.current_memory_mb,
             'gpu_available': self.gpu_available,
             'gpu_cores_used': self.gpu_cores_used,
+            'input_file_sizes_mb': self.input_file_sizes_mb,
+            'output_file_sizes_mb': self.output_file_sizes_mb,
+            'total_input_size_mb': total_input_size,
+            'total_output_size_mb': total_output_size,
         }
 
 
@@ -261,6 +269,44 @@ class PerformanceMonitor:
         
         self.accuracy_metrics.append(accuracy)
         self._update_memory()
+    
+    def record_input_file(self, file_path: str):
+        """
+        Record input file size.
+        
+        Parameters
+        ----------
+        file_path : str
+            Path to input file
+        """
+        try:
+            from pathlib import Path
+            path = Path(file_path)
+            if path.exists():
+                size_bytes = path.stat().st_size
+                size_mb = size_bytes / (1024 * 1024)
+                self.metrics.input_file_sizes_mb[str(path)] = size_mb
+        except Exception:
+            pass  # Silently fail if file doesn't exist or can't be accessed
+    
+    def record_output_file(self, file_path: str):
+        """
+        Record output file size.
+        
+        Parameters
+        ----------
+        file_path : str
+            Path to output file
+        """
+        try:
+            from pathlib import Path
+            path = Path(file_path)
+            if path.exists():
+                size_bytes = path.stat().st_size
+                size_mb = size_bytes / (1024 * 1024)
+                self.metrics.output_file_sizes_mb[str(path)] = size_mb
+        except Exception:
+            pass  # Silently fail if file doesn't exist or can't be accessed
     
     def finalize(self):
         """Finalize metrics collection."""
