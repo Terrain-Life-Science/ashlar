@@ -109,7 +109,8 @@ setup(
             'ashlar=ashlar.scripts.ashlar:main',
             'preview_slide=ashlar.scripts.preview_slide:main',
             'make_alignment_movie=ashlar.scripts.make_alignment_movie:main',
-            'generate_synthetic_test_images=ashlar.scripts.generate_synthetic_test_images:main'
+            'generate_synthetic_test_images=ashlar.scripts.generate_synthetic_test_images:main',
+            'verify_synthetic_images=ashlar.scripts.verify_synthetic_images:main'
         ]
     },
     classifiers=[

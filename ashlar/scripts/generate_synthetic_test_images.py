@@ -262,7 +262,7 @@ def generate_synthetic_cycle(
                     predictor=True,
                 )
     
-    print(f"  ✓ Complete: {output_path}")
+    print(f"  [OK] Complete: {output_path}")
     print()
 
 
@@ -369,7 +369,7 @@ Examples:
         )
     
     print("=" * 60)
-    print("✓ All synthetic test images generated!")
+    print("[SUCCESS] All synthetic test images generated!")
     print(f"  Output directory: {output_dir}")
     print()
     print("Expected shifts (for validation):")
