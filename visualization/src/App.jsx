@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import SummaryCard from './components/SummaryCard'
 import CycleAccuracyCard from './components/CycleAccuracyCard'
+import PerformanceMetrics from './components/PerformanceMetrics'
 import './App.css'
 
 function App() {
@@ -78,6 +79,7 @@ function App() {
       </header>
       <main className="app-main">
         <SummaryCard data={data} />
+        <PerformanceMetrics data={data} />
         <CycleAccuracyCard data={data} />
       </main>
     </div>

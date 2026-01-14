@@ -1,0 +1,88 @@
+.performance-metrics {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.performance-metrics h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 0.5rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 2rem;
+}
+
+.chart-container {
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 1rem;
+  border: 1px solid #e0e0e0;
+}
+
+.chart-container h3 {
+  margin: 0 0 1rem 0;
+  color: #333;
+  font-size: 1.125rem;
+}
+
+.chart-summary {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+  text-align: center;
+}
+
+.chart-summary p {
+  margin: 0;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+.chart-summary strong {
+  color: #333;
+  font-size: 1rem;
+}
+
+.gpu-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  min-height: 200px;
+}
+
+.status-indicator {
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.status-indicator.available {
+  background: #4caf50;
+  color: white;
+}
+
+.status-indicator.unavailable {
+  background: #f44336;
+  color: white;
+}
+
+.gpu-status p {
+  margin: 0.5rem 0;
+  color: #666;
+}
+
+.gpu-status strong {
+  color: #333;
+  font-size: 1.125rem;
+}
