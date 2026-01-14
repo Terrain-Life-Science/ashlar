@@ -176,7 +176,13 @@ class PerformanceMonitor:
                 coarse_shift_tuple = (float(coarse_shift[0]), float(coarse_shift[1]))
             
             # Determine transform type from transform_result
-            transform_type = transform_result.get('transform_type', 'translation' if coarse_shift_tuple != (0.0, 0.0) else 'identity')
+            # Use tolerance-based comparison for floating-point values
+            # Consider shifts < 0.01 pixels as effectively zero
+            SHIFT_TOLERANCE = 0.01
+            is_zero_shift = (abs(coarse_shift_tuple[0]) < SHIFT_TOLERANCE and 
+                           abs(coarse_shift_tuple[1]) < SHIFT_TOLERANCE)
+            transform_type = transform_result.get('transform_type', 
+                                                 'identity' if is_zero_shift else 'translation')
             transform_params = transform_result.get('params', (coarse_shift_tuple[1], coarse_shift_tuple[0], 0.0, 1.0))
             
             accuracy = RegistrationAccuracy(

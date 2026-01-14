@@ -41,13 +41,27 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     y_adj = tile_info.y + int(round(coarse_shift[0]))
     x_adj = tile_info.x + int(round(coarse_shift[1]))
     
-    # Clamp to valid range
-    y_adj = max(0, min(y_adj, h_max - 1))
-    x_adj = max(0, min(x_adj, w_max - 1))
+    # Clamp position to ensure we can extract a valid tile
+    # Ensure at least 50% of original tile size is available
+    min_tile_h = max(1, tile_info.height // 2)
+    min_tile_w = max(1, tile_info.width // 2)
     
-    # Adjust tile size if needed
+    # Clamp to valid range, ensuring minimum tile size
+    y_adj = max(0, min(y_adj, h_max - min_tile_h))
+    x_adj = max(0, min(x_adj, w_max - min_tile_w))
+    
+    # Calculate available tile size
     tile_h = min(tile_info.height, h_max - y_adj)
     tile_w = min(tile_info.width, w_max - x_adj)
+    
+    # Ensure minimum tile size for valid registration
+    # If tile would be too small, adjust position to get larger tile
+    if tile_h < min_tile_h:
+        y_adj = max(0, h_max - tile_info.height)
+        tile_h = min(tile_info.height, h_max - y_adj)
+    if tile_w < min_tile_w:
+        x_adj = max(0, w_max - tile_info.width)
+        tile_w = min(tile_info.width, w_max - x_adj)
     
     # Extract tile
     tile = reader.get_tile(0, channel, y_adj, x_adj, (tile_h, tile_w))
