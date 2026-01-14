@@ -36,7 +36,8 @@ class EvosRegistrationPipeline:
                  tile_overlap: int = 512,
                  transform_type: str = 'similarity',
                  num_workers: Optional[int] = None,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 coarse_only: bool = False):
         """
         Initialize registration pipeline.
         
@@ -62,6 +63,9 @@ class EvosRegistrationPipeline:
             Number of parallel workers (default: number of CPU cores)
         verbose : bool
             Print progress messages (default: True)
+        coarse_only : bool
+            If True, skip fine registration and use only coarse alignment
+            (default: False)
         """
         self.cycle_files = [Path(f) for f in cycle_files]
         self.reference_idx = reference_idx
@@ -73,6 +77,7 @@ class EvosRegistrationPipeline:
         self.transform_type = transform_type
         self.num_workers = num_workers
         self.verbose = verbose
+        self.coarse_only = coarse_only
         
         # Results storage
         self.coarse_shifts = {}
@@ -104,13 +109,24 @@ class EvosRegistrationPipeline:
         """
         with self.performance_monitor.phase("Coarse Alignment"):
             self._print("Phase 1: Coarse Alignment")
-            self._print(f"  Using pyramid level {self.coarse_pyramid_level}")
+            
+            # If coarse_only, use level 2 (4x downsampled) with 10x upsampling for sub-pixel accuracy
+            # This minimizes memory usage while maintaining accuracy
+            if self.coarse_only:
+                pyramid_level = 2  # 4x downsampled - minimizes memory usage
+                upsample = 10
+                self._print(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
+            else:
+                pyramid_level = self.coarse_pyramid_level
+                upsample = 1
+                self._print(f"  Using pyramid level {pyramid_level}")
             
             self.coarse_shifts = coarse_align_all_cycles(
                 self.cycle_files,
                 reference_idx=self.reference_idx,
-                pyramid_level=self.coarse_pyramid_level,
-                dapi_channel=self.dapi_channel
+                pyramid_level=pyramid_level,
+                dapi_channel=self.dapi_channel,
+                upsample=upsample
             )
             
             self._print(f"  Reference cycle: {self.reference_idx}")
@@ -196,9 +212,42 @@ class EvosRegistrationPipeline:
                 'params': (0.0, 0.0, 0.0, 1.0),
                 'residuals': np.array([]),
                 'rmse': 0.0,
-                'inliers': np.array([])
+                'inliers': np.array([]),
+                'transform_type': 'identity'
             }
         
+        # If coarse_only, create simple translation transform from coarse shift
+        if self.coarse_only:
+            if cycle_idx not in self.coarse_shifts:
+                raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
+            
+            with self.performance_monitor.phase(f"Transform Creation - Cycle {cycle_idx}"):
+                self._print(f"Phase 3: Transform Creation - Cycle {cycle_idx} (coarse-only mode)")
+                
+                coarse_shift, coarse_error = self.coarse_shifts[cycle_idx]
+                # Create translation transform: [1, 0, tx; 0, 1, ty; 0, 0, 1]
+                transform_matrix = np.array([
+                    [1.0, 0.0, coarse_shift[1]],  # x translation
+                    [0.0, 1.0, coarse_shift[0]],  # y translation
+                    [0.0, 0.0, 1.0]
+                ])
+                
+                result = {
+                    'transform': transform_matrix,
+                    'params': (coarse_shift[1], coarse_shift[0], 0.0, 1.0),  # tx, ty, rotation, scale
+                    'residuals': np.array([]),
+                    'rmse': coarse_error,
+                    'inliers': np.array([]),
+                    'transform_type': 'translation'
+                }
+                
+                self.transforms[cycle_idx] = result
+                self._print(f"  Translation: ({coarse_shift[1]:.4f}, {coarse_shift[0]:.4f}) pixels")
+                self._print(f"  Error: {coarse_error:.4f}")
+            
+            return result
+        
+        # Fine registration mode - use tile-based transform fitting
         if cycle_idx not in self.fine_shifts:
             raise ValueError(f"Fine registration not run for cycle {cycle_idx}")
         
@@ -302,11 +351,15 @@ class EvosRegistrationPipeline:
         self.run_coarse_alignment()
         self._print("")
         
-        # Phase 2: Fine registration for each cycle
-        for i in range(len(self.cycle_files)):
-            if i != self.reference_idx:
-                self.run_fine_registration(i)
-                self._print("")
+        # Phase 2: Fine registration for each cycle (skip if coarse_only)
+        if not self.coarse_only:
+            for i in range(len(self.cycle_files)):
+                if i != self.reference_idx:
+                    self.run_fine_registration(i)
+                    self._print("")
+        else:
+            self._print("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
+            self._print("")
         
         # Phase 3: Fit transforms
         for i in range(len(self.cycle_files)):

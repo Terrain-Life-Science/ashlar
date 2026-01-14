@@ -167,21 +167,32 @@ class PerformanceMonitor:
             Transform fitting result
         """
         if not fine_shifts:
-            # Reference cycle - no fine registration
+            # Coarse-only mode or reference cycle - use coarse shift
+            import numpy as np
+            # Convert coarse_shift to tuple if it's a numpy array
+            if isinstance(coarse_shift, np.ndarray):
+                coarse_shift_tuple = (float(coarse_shift[0]), float(coarse_shift[1]))
+            else:
+                coarse_shift_tuple = (float(coarse_shift[0]), float(coarse_shift[1]))
+            
+            # Determine transform type from transform_result
+            transform_type = transform_result.get('transform_type', 'translation' if coarse_shift_tuple != (0.0, 0.0) else 'identity')
+            transform_params = transform_result.get('params', (coarse_shift_tuple[1], coarse_shift_tuple[0], 0.0, 1.0))
+            
             accuracy = RegistrationAccuracy(
                 cycle_idx=cycle_idx,
-                coarse_shift=(0.0, 0.0),
-                coarse_error=0.0,
+                coarse_shift=coarse_shift_tuple,
+                coarse_error=float(coarse_error),
                 num_tiles=0,
                 num_inliers=0,
-                transform_type='identity',
-                transform_params=(0.0, 0.0, 0.0, 1.0),
-                rmse=0.0,
+                transform_type=transform_type,
+                transform_params=transform_params,
+                rmse=transform_result.get('rmse', 0.0),
                 mean_residual=0.0,
                 max_residual=0.0,
                 min_residual=0.0,
-                mean_shift_x=0.0,
-                mean_shift_y=0.0,
+                mean_shift_x=coarse_shift_tuple[1],
+                mean_shift_y=coarse_shift_tuple[0],
                 std_shift_x=0.0,
                 std_shift_y=0.0,
             )

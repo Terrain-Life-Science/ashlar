@@ -40,9 +40,24 @@ class PyramidalOMETiffReader:
         """Get zarr array for specific pyramid level."""
         if level not in self._zarr_cache:
             tiff = self._get_tiff()
-            if level >= len(tiff.series):
-                raise ValueError(f"Pyramid level {level} does not exist (max: {len(tiff.series)-1})")
-            self._zarr_cache[level] = zarr.open(tiff.aszarr(series=0, level=level, squeeze=False))
+            if len(tiff.series) == 0:
+                raise ValueError("No image series found in file")
+            
+            # Check if pyramid level exists using series levels attribute
+            series = tiff.series[0]
+            if hasattr(series, 'levels') and series.levels:
+                max_level = len(series.levels) - 1
+                if level > max_level:
+                    raise ValueError(f"Pyramid level {level} does not exist (max: {max_level})")
+            else:
+                # Fallback: assume only level 0 exists if levels attribute not available
+                if level > 0:
+                    raise ValueError(f"Pyramid level {level} does not exist (max: 0)")
+            
+            # Open zarr array for this level
+            zarr_array = zarr.open(tiff.aszarr(series=0, level=level, squeeze=False))
+            self._zarr_cache[level] = zarr_array
+        
         return self._zarr_cache[level]
     
     def get_pyramid_level(self, level: int = 0) -> zarr.Array:

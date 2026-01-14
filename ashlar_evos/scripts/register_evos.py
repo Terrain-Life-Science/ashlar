@@ -5,6 +5,7 @@ Command-line interface for registering Evos S1000 imaging cycles.
 import argparse
 import pathlib
 import sys
+import glob
 from ashlar_evos.pipeline import EvosRegistrationPipeline
 
 
@@ -32,8 +33,8 @@ Examples:
     parser.add_argument(
         'cycles',
         nargs='+',
-        type=pathlib.Path,
-        help='Input cycle OME-TIFF files (reference should be first, or use --reference)'
+        type=str,
+        help='Input cycle OME-TIFF files (reference should be first, or use --reference). Supports glob patterns.'
     )
     
     parser.add_argument(
@@ -112,15 +113,48 @@ Examples:
         help='Path to save JSON performance report (optional)'
     )
     
+    parser.add_argument(
+        '--coarse-only',
+        action='store_true',
+        help='Skip fine registration and use only coarse alignment with full-resolution DAPI'
+    )
+    
     args = parser.parse_args(argv)
     
+    # Expand glob patterns
+    expanded_cycles = []
+    for pattern in args.cycles:
+        # Check if pattern contains wildcards
+        if '*' in pattern or '?' in pattern or '[' in pattern:
+            matched_files = glob.glob(pattern)
+            if not matched_files:
+                parser.error(f"No files found matching pattern: {pattern}")
+            expanded_cycles.extend(matched_files)
+        else:
+            # No wildcards - treat as literal path
+            expanded_cycles.append(pattern)
+    
+    if not expanded_cycles:
+        parser.error(f"No files found matching patterns: {args.cycles}")
+    
+    # Convert to Path objects and validate
+    cycle_files = []
+    for f in expanded_cycles:
+        path = pathlib.Path(f)
+        if not path.exists():
+            parser.error(f"File not found: {f}")
+        cycle_files.append(path)
+    
+    # Sort files to ensure consistent ordering
+    cycle_files.sort()
+    
     # Validate inputs
-    if args.reference < 0 or args.reference >= len(args.cycles):
-        parser.error(f"Reference index {args.reference} out of range (0-{len(args.cycles)-1})")
+    if args.reference < 0 or args.reference >= len(cycle_files):
+        parser.error(f"Reference index {args.reference} out of range (0-{len(cycle_files)-1})")
     
     # Create pipeline
     pipeline = EvosRegistrationPipeline(
-        cycle_files=args.cycles,
+        cycle_files=cycle_files,
         reference_idx=args.reference,
         dapi_channel=args.dapi_channel,
         pixel_size=args.pixel_size,
@@ -129,7 +163,8 @@ Examples:
         tile_overlap=args.tile_overlap,
         transform_type=args.transform_type,
         num_workers=args.num_workers,
-        verbose=not args.quiet
+        verbose=not args.quiet,
+        coarse_only=args.coarse_only
     )
     
     # Run pipeline

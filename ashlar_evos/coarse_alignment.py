@@ -35,11 +35,11 @@ def read_pyramid_dapi(filepath: Path, level: int = 3, dapi_channel: int = 0) -> 
 
 
 def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray, 
-                 filter_sigma: float = 0.0) -> Tuple[np.ndarray, float]:
+                 filter_sigma: float = 0.0, upsample: int = 1) -> Tuple[np.ndarray, float]:
     """
-    Align two downsampled DAPI images using phase correlation.
+    Align two DAPI images using phase correlation.
     
-    This performs a global alignment on the full downsampled images.
+    This performs a global alignment on the full images.
     Adapted from ashlar's utils.register() for full-image registration.
     
     Parameters
@@ -50,6 +50,8 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
         Target DAPI image to align (2D array)
     filter_sigma : float
         Gaussian filter sigma for preprocessing (default: 0.0 = no filter)
+    upsample : int
+        Upsampling factor for sub-pixel accuracy (default: 1, use 10 for sub-pixel)
         
     Returns
     -------
@@ -65,10 +67,9 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
             f"Image shapes must match: {reference_dapi.shape} vs {target_dapi.shape}"
         )
     
-    # Use ashlar's phase correlation with reduced upsampling for coarse alignment
-    # For coarse alignment, we don't need 10x upsampling - 1x is sufficient
+    # Use ashlar's phase correlation with specified upsampling
     shift, error = utils.register(reference_dapi, target_dapi, 
-                                  sigma=filter_sigma, upsample=1)
+                                  sigma=filter_sigma, upsample=upsample)
     
     # Convert shift to numpy array and error to float
     shift = np.array(shift, dtype=np.float64)
@@ -79,7 +80,7 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
 
 def coarse_align_cycle(reference_file: Path, target_file: Path,
                       pyramid_level: int = 3, dapi_channel: int = 0,
-                      filter_sigma: float = 0.0) -> Tuple[np.ndarray, float]:
+                      filter_sigma: float = 0.0, upsample: int = 1) -> Tuple[np.ndarray, float]:
     """
     Coarse align a target cycle to reference cycle.
     
@@ -91,10 +92,13 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
         Path to target cycle OME-TIFF file
     pyramid_level : int
         Pyramid level to use for coarse alignment (default: 3)
+        Use 0 for full resolution with sub-pixel accuracy
     dapi_channel : int
         Channel index for DAPI (default: 0)
     filter_sigma : float
         Gaussian filter sigma for preprocessing
+    upsample : int
+        Upsampling factor for sub-pixel accuracy (default: 1, use 10 for sub-pixel)
         
     Returns
     -------
@@ -108,7 +112,8 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
                                     dapi_channel=dapi_channel)
     
     # Perform coarse alignment
-    shift, error = coarse_align(ref_dapi, target_dapi, filter_sigma=filter_sigma)
+    shift, error = coarse_align(ref_dapi, target_dapi, 
+                               filter_sigma=filter_sigma, upsample=upsample)
     
     # Scale shift to full resolution
     # Pyramid level N is downsampled by 2^N
@@ -120,7 +125,7 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
 
 def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
                            pyramid_level: int = 3, dapi_channel: int = 0,
-                           filter_sigma: float = 0.0) -> Dict[int, Tuple[np.ndarray, float]]:
+                           filter_sigma: float = 0.0, upsample: int = 1) -> Dict[int, Tuple[np.ndarray, float]]:
     """
     Coarse align all cycles to reference cycle.
     
@@ -165,7 +170,8 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
                                        dapi_channel=dapi_channel)
         
         # Perform coarse alignment
-        shift, error = coarse_align(ref_dapi, target_dapi, filter_sigma=filter_sigma)
+        shift, error = coarse_align(ref_dapi, target_dapi, 
+                                   filter_sigma=filter_sigma, upsample=upsample)
         
         # Scale shift to full resolution
         scale_factor = 2 ** pyramid_level
