@@ -46,27 +46,33 @@ def write_pyramidal_ometiff(output_path: Path,
         channel_names = [f"Channel_{i}" for i in range(len(channels))]
     
         # Generate pyramid levels with proper downsampling
+    # Each level is 2x smaller than the previous level (not 4x per iteration)
     pyramid_data = []
-    h, w = base_shape
     
-    for level in range(num_pyramid_levels):
-        if level == 0:
-            # Base level - stack channels: (C, Y, X)
-            level_data = np.stack(channels, axis=0)
-        else:
-            # Downsample each channel using local mean
-            level_channels = []
-            for channel in channels:
-                temp = channel.astype(np.float32)
-                for _ in range(level):
-                    # Downsample by 2 using local mean
-                    temp = (temp[::2, :] + temp[1::2, :]) / 2
-                    temp = (temp[:, ::2] + temp[:, 1::2]) / 2
-                level_channels.append(temp.astype(np.uint16))
-            # Stack channels: (C, Y, X)
-            level_data = np.stack(level_channels, axis=0)
+    # Start with base level
+    current_level_channels = [ch.copy() for ch in channels]
+    pyramid_data.append(np.stack(current_level_channels, axis=0))
+    
+    # Generate subsequent levels by downsampling from previous level
+    for level in range(1, num_pyramid_levels):
+        # Downsample each channel from previous level (2x smaller than previous)
+        level_channels = []
+        for channel in current_level_channels:
+            temp = channel.astype(np.float32)
+            # Downsample by 2 in rows (2x reduction in height)
+            temp = (temp[::2, :] + temp[1::2, :]) / 2
+            # Downsample by 2 in columns (2x reduction in width)
+            # Total: each dimension is 2x smaller, so area is 4x smaller
+            # But for pyramid purposes, level N is 2^N times smaller than base
+            temp = (temp[:, ::2] + temp[:, 1::2]) / 2
+            level_channels.append(temp.astype(np.uint16))
         
+        # Stack channels: (C, Y, X)
+        level_data = np.stack(level_channels, axis=0)
         pyramid_data.append(level_data)
+        
+        # Update current level for next iteration
+        current_level_channels = level_channels
     
     # Write OME-TIFF with pyramid
     # Use tifffile's OME-TIFF writer with subifds for pyramid levels

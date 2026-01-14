@@ -108,6 +108,11 @@ class PerformanceMonitor:
             self.process = psutil.Process(os.getpid())
             self.metrics.cpu_cores_used = psutil.cpu_count(logical=False) or 1
             self.metrics.cpu_threads_used = psutil.cpu_count(logical=True) or 1
+        else:
+            # Fall back to os.cpu_count() when psutil is not available
+            import os
+            self.metrics.cpu_cores_used = os.cpu_count() or 1
+            self.metrics.cpu_threads_used = os.cpu_count() or 1
         
         # Check for GPU (basic check)
         self.metrics.gpu_available = self._check_gpu()

@@ -191,28 +191,37 @@ def generate_synthetic_cycle(
     img_stack = (img_stack * 65535).astype(np.uint16)
     
     # Create pyramid levels
+    # Each level is 2x smaller than the previous level (not 4x per iteration)
     print(f"  Creating {num_pyramid_levels} pyramid levels...")
     pyramid_levels = []
-    for level in range(num_pyramid_levels):
-        if level == 0:
-            level_img = img_stack
-        else:
-            # Downsample each channel
-            level_img = np.zeros(
-                (3, h // (2**level), w // (2**level)),
-                dtype=np.uint16
-            )
-            for c in range(3):
-                # Better downsampling using local mean
-                temp = img_stack[c].astype(np.float32)
-                for _ in range(level):
-                    # Downsample by 2 using local mean
-                    temp = (temp[::2, :] + temp[1::2, :]) / 2
-                    temp = (temp[:, ::2] + temp[:, 1::2]) / 2
-                level_img[c] = temp.astype(np.uint16)
+    
+    # Start with base level
+    current_level = img_stack.copy()
+    pyramid_levels.append(current_level)
+    print(f"    Level 0: {current_level.shape}")
+    
+    # Generate subsequent levels by downsampling from previous level
+    for level in range(1, num_pyramid_levels):
+        # Downsample each channel from previous level (2x smaller than previous)
+        level_img = np.zeros(
+            (3, current_level.shape[1] // 2, current_level.shape[2] // 2),
+            dtype=np.uint16
+        )
+        for c in range(3):
+            temp = current_level[c].astype(np.float32)
+            # Downsample by 2 in rows (2x reduction in height)
+            temp = (temp[::2, :] + temp[1::2, :]) / 2
+            # Downsample by 2 in columns (2x reduction in width)
+            # Total: each dimension is 2x smaller, so area is 4x smaller
+            # But for pyramid purposes, level N is 2^N times smaller than base
+            temp = (temp[:, ::2] + temp[:, 1::2]) / 2
+            level_img[c] = temp.astype(np.uint16)
         
         pyramid_levels.append(level_img)
         print(f"    Level {level}: {level_img.shape}")
+        
+        # Update current level for next iteration
+        current_level = level_img
     
     # Write pyramidal OME-TIFF
     print(f"  Writing to {output_path}...")
