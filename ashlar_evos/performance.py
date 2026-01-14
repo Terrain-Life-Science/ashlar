@@ -1,0 +1,362 @@
+"""
+Performance monitoring and resource tracking for registration pipeline.
+
+Tracks timing, CPU usage, memory usage, and registration accuracy metrics.
+"""
+
+import time
+import os
+import sys
+from typing import Dict, List, Optional, Tuple
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from datetime import datetime
+import json
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
+
+@dataclass
+class PerformanceMetrics:
+    """Container for performance metrics."""
+    start_time: float = field(default_factory=time.time)
+    end_time: Optional[float] = None
+    phases: Dict[str, float] = field(default_factory=dict)
+    cpu_cores_used: int = 0
+    cpu_threads_used: int = 0
+    peak_memory_mb: float = 0.0
+    current_memory_mb: float = 0.0
+    gpu_available: bool = False
+    gpu_cores_used: int = 0
+    
+    def elapsed_time(self) -> float:
+        """Get total elapsed time in seconds."""
+        end = self.end_time if self.end_time else time.time()
+        return end - self.start_time
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'start_time': datetime.fromtimestamp(self.start_time).isoformat(),
+            'end_time': datetime.fromtimestamp(self.end_time).isoformat() if self.end_time else None,
+            'elapsed_time_seconds': self.elapsed_time(),
+            'phases': self.phases,
+            'cpu_cores_used': self.cpu_cores_used,
+            'cpu_threads_used': self.cpu_threads_used,
+            'peak_memory_mb': self.peak_memory_mb,
+            'current_memory_mb': self.current_memory_mb,
+            'gpu_available': self.gpu_available,
+            'gpu_cores_used': self.gpu_cores_used,
+        }
+
+
+@dataclass
+class RegistrationAccuracy:
+    """Container for registration accuracy metrics."""
+    cycle_idx: int
+    coarse_shift: Tuple[float, float]
+    coarse_error: float
+    num_tiles: int
+    num_inliers: int
+    transform_type: str
+    transform_params: Tuple
+    rmse: float
+    mean_residual: float
+    max_residual: float
+    min_residual: float
+    mean_shift_x: float
+    mean_shift_y: float
+    std_shift_x: float
+    std_shift_y: float
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'cycle_idx': self.cycle_idx,
+            'coarse_shift': {'x': self.coarse_shift[1], 'y': self.coarse_shift[0]},
+            'coarse_error': self.coarse_error,
+            'num_tiles': self.num_tiles,
+            'num_inliers': self.num_inliers,
+            'inlier_ratio': self.num_inliers / self.num_tiles if self.num_tiles > 0 else 0.0,
+            'transform_type': self.transform_type,
+            'transform_params': list(self.transform_params),
+            'rmse': self.rmse,
+            'mean_residual': self.mean_residual,
+            'max_residual': self.max_residual,
+            'min_residual': self.min_residual,
+            'mean_shift_x': self.mean_shift_x,
+            'mean_shift_y': self.mean_shift_y,
+            'std_shift_x': self.std_shift_x,
+            'std_shift_y': self.std_shift_y,
+        }
+
+
+class PerformanceMonitor:
+    """Monitor performance metrics during registration."""
+    
+    def __init__(self):
+        """Initialize performance monitor."""
+        self.metrics = PerformanceMetrics()
+        self.accuracy_metrics: List[RegistrationAccuracy] = []
+        self.process = None
+        
+        if PSUTIL_AVAILABLE:
+            self.process = psutil.Process(os.getpid())
+            self.metrics.cpu_cores_used = psutil.cpu_count(logical=False) or 1
+            self.metrics.cpu_threads_used = psutil.cpu_count(logical=True) or 1
+        
+        # Check for GPU (basic check)
+        self.metrics.gpu_available = self._check_gpu()
+    
+    def _check_gpu(self) -> bool:
+        """Check if GPU is available."""
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except ImportError:
+            try:
+                import tensorflow as tf
+                return len(tf.config.list_physical_devices('GPU')) > 0
+            except ImportError:
+                return False
+    
+    @contextmanager
+    def phase(self, phase_name: str):
+        """Context manager for timing a phase."""
+        start = time.time()
+        try:
+            yield
+        finally:
+            elapsed = time.time() - start
+            self.metrics.phases[phase_name] = elapsed
+            self._update_memory()
+    
+    def _update_memory(self):
+        """Update memory usage metrics."""
+        if PSUTIL_AVAILABLE and self.process:
+            try:
+                mem_info = self.process.memory_info()
+                current_mb = mem_info.rss / (1024 * 1024)
+                self.metrics.current_memory_mb = current_mb
+                if current_mb > self.metrics.peak_memory_mb:
+                    self.metrics.peak_memory_mb = current_mb
+            except Exception:
+                pass
+    
+    def record_accuracy(self, cycle_idx: int, coarse_shift: Tuple[float, float],
+                       coarse_error: float, fine_shifts: List[Tuple],
+                       transform_result: Dict):
+        """
+        Record registration accuracy metrics for a cycle.
+        
+        Parameters
+        ----------
+        cycle_idx : int
+            Cycle index
+        coarse_shift : tuple
+            Coarse shift (dy, dx)
+        coarse_error : float
+            Coarse alignment error
+        fine_shifts : list
+            List of (shift, error) tuples from fine registration
+        transform_result : dict
+            Transform fitting result
+        """
+        if not fine_shifts:
+            # Reference cycle - no fine registration
+            accuracy = RegistrationAccuracy(
+                cycle_idx=cycle_idx,
+                coarse_shift=(0.0, 0.0),
+                coarse_error=0.0,
+                num_tiles=0,
+                num_inliers=0,
+                transform_type='identity',
+                transform_params=(0.0, 0.0, 0.0, 1.0),
+                rmse=0.0,
+                mean_residual=0.0,
+                max_residual=0.0,
+                min_residual=0.0,
+                mean_shift_x=0.0,
+                mean_shift_y=0.0,
+                std_shift_x=0.0,
+                std_shift_y=0.0,
+            )
+        else:
+            import numpy as np
+            
+            # Extract shifts
+            shifts = np.array([s[0] for s in fine_shifts])
+            errors = np.array([s[1] for s in fine_shifts])
+            
+            # Calculate statistics
+            mean_shift_x = float(np.mean(shifts[:, 1]))
+            mean_shift_y = float(np.mean(shifts[:, 0]))
+            std_shift_x = float(np.std(shifts[:, 1]))
+            std_shift_y = float(np.std(shifts[:, 0]))
+            
+            # Get residuals from transform result
+            residuals = transform_result.get('residuals', np.array([]))
+            if len(residuals) > 0:
+                inliers = transform_result.get('inliers', np.ones(len(residuals), dtype=bool))
+                inlier_residuals = residuals[inliers]
+                if len(inlier_residuals) > 0:
+                    mean_residual = float(np.mean(inlier_residuals))
+                    max_residual = float(np.max(inlier_residuals))
+                    min_residual = float(np.min(inlier_residuals))
+                else:
+                    mean_residual = max_residual = min_residual = 0.0
+            else:
+                mean_residual = max_residual = min_residual = 0.0
+            
+            # Get transform info
+            transform_type = transform_result.get('transform_type', 'unknown')
+            params = transform_result.get('params', ())
+            rmse = transform_result.get('rmse', 0.0)
+            inliers = transform_result.get('inliers', np.array([]))
+            num_inliers = int(np.sum(inliers)) if len(inliers) > 0 else len(fine_shifts)
+            
+            accuracy = RegistrationAccuracy(
+                cycle_idx=cycle_idx,
+                coarse_shift=coarse_shift,
+                coarse_error=coarse_error,
+                num_tiles=len(fine_shifts),
+                num_inliers=num_inliers,
+                transform_type=transform_type,
+                transform_params=params,
+                rmse=rmse,
+                mean_residual=mean_residual,
+                max_residual=max_residual,
+                min_residual=min_residual,
+                mean_shift_x=mean_shift_x,
+                mean_shift_y=mean_shift_y,
+                std_shift_x=std_shift_x,
+                std_shift_y=std_shift_y,
+            )
+        
+        self.accuracy_metrics.append(accuracy)
+        self._update_memory()
+    
+    def finalize(self):
+        """Finalize metrics collection."""
+        self.metrics.end_time = time.time()
+        self._update_memory()
+    
+    def generate_report(self, output_path: Optional[str] = None) -> Dict:
+        """
+        Generate summary report.
+        
+        Parameters
+        ----------
+        output_path : str, optional
+            Path to save JSON report (if None, returns dict only)
+            
+        Returns
+        -------
+        dict
+            Summary report dictionary
+        """
+        import numpy as np
+        
+        # Calculate average accuracy metrics
+        if self.accuracy_metrics:
+            # Filter out reference cycle (cycle 0 typically)
+            non_ref_metrics = [m for m in self.accuracy_metrics if m.cycle_idx != 0]
+            
+            if non_ref_metrics:
+                avg_rmse = np.mean([m.rmse for m in non_ref_metrics])
+                avg_mean_residual = np.mean([m.mean_residual for m in non_ref_metrics])
+                avg_shift_x = np.mean([m.mean_shift_x for m in non_ref_metrics])
+                avg_shift_y = np.mean([m.mean_shift_y for m in non_ref_metrics])
+                avg_std_shift_x = np.mean([m.std_shift_x for m in non_ref_metrics])
+                avg_std_shift_y = np.mean([m.std_shift_y for m in non_ref_metrics])
+            else:
+                avg_rmse = avg_mean_residual = avg_shift_x = avg_shift_y = 0.0
+                avg_std_shift_x = avg_std_shift_y = 0.0
+        else:
+            avg_rmse = avg_mean_residual = avg_shift_x = avg_shift_y = 0.0
+            avg_std_shift_x = avg_std_shift_y = 0.0
+        
+        report = {
+            'summary': {
+                'total_time_seconds': self.metrics.elapsed_time(),
+                'total_time_formatted': self._format_time(self.metrics.elapsed_time()),
+                'num_cycles': len(self.accuracy_metrics),
+                'average_rmse': float(avg_rmse),
+                'average_mean_residual': float(avg_mean_residual),
+                'average_shift_x': float(avg_shift_x),
+                'average_shift_y': float(avg_shift_y),
+                'average_std_shift_x': float(avg_std_shift_x),
+                'average_std_shift_y': float(avg_std_shift_y),
+            },
+            'performance': self.metrics.to_dict(),
+            'accuracy_by_cycle': [m.to_dict() for m in self.accuracy_metrics],
+        }
+        
+        if output_path:
+            with open(output_path, 'w') as f:
+                json.dump(report, f, indent=2)
+        
+        return report
+    
+    def print_summary(self):
+        """Print human-readable summary to console."""
+        report = self.generate_report()
+        summary = report['summary']
+        perf = report['performance']
+        
+        print("\n" + "=" * 70)
+        print("REGISTRATION SUMMARY REPORT")
+        print("=" * 70)
+        
+        print("\n[PERFORMANCE]")
+        print(f"  Total Time: {summary['total_time_formatted']}")
+        print(f"  CPU Cores Used: {perf['cpu_cores_used']}")
+        print(f"  CPU Threads Used: {perf['cpu_threads_used']}")
+        print(f"  Peak Memory: {perf['peak_memory_mb']:.2f} MB")
+        print(f"  GPU Available: {perf['gpu_available']}")
+        if perf['gpu_available']:
+            print(f"  GPU Cores Used: {perf['gpu_cores_used']}")
+        
+        print("\n[PHASE TIMING]")
+        for phase, time_sec in perf['phases'].items():
+            print(f"  {phase}: {self._format_time(time_sec)}")
+        
+        print("\n[ACCURACY SUMMARY]")
+        print(f"  Number of Cycles: {summary['num_cycles']}")
+        print(f"  Average RMSE: {summary['average_rmse']:.4f} pixels")
+        print(f"  Average Mean Residual: {summary['average_mean_residual']:.4f} pixels")
+        print(f"  Average Shift X: {summary['average_shift_x']:.4f} ± {summary['average_std_shift_x']:.4f} pixels")
+        print(f"  Average Shift Y: {summary['average_shift_y']:.4f} ± {summary['average_std_shift_y']:.4f} pixels")
+        
+        print("\n[ACCURACY BY CYCLE]")
+        for acc in report['accuracy_by_cycle']:
+            if acc['cycle_idx'] == 0:
+                print(f"  Cycle {acc['cycle_idx']:02d} (Reference): No alignment needed")
+            else:
+                print(f"  Cycle {acc['cycle_idx']:02d}:")
+                print(f"    Coarse Shift: ({acc['coarse_shift']['x']:.2f}, {acc['coarse_shift']['y']:.2f}) pixels")
+                print(f"    Tiles: {acc['num_inliers']}/{acc['num_tiles']} inliers ({acc['inlier_ratio']*100:.1f}%)")
+                print(f"    RMSE: {acc['rmse']:.4f} pixels")
+                print(f"    Mean Residual: {acc['mean_residual']:.4f} pixels")
+                print(f"    Shift X: {acc['mean_shift_x']:.4f} ± {acc['std_shift_x']:.4f} pixels")
+                print(f"    Shift Y: {acc['mean_shift_y']:.4f} ± {acc['std_shift_y']:.4f} pixels")
+        
+        print("\n" + "=" * 70)
+    
+    def _format_time(self, seconds: float) -> str:
+        """Format time in human-readable format."""
+        if seconds < 60:
+            return f"{seconds:.2f} seconds"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = seconds % 60
+            return f"{minutes}m {secs:.2f}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = seconds % 60
+            return f"{hours}h {minutes}m {secs:.2f}s"

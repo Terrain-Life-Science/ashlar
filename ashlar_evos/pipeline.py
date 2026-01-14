@@ -20,6 +20,7 @@ from .transform_fitting import (
     fit_affine_transform
 )
 from .writer import write_aligned_cycle
+from .performance import PerformanceMonitor
 
 
 class EvosRegistrationPipeline:
@@ -79,6 +80,9 @@ class EvosRegistrationPipeline:
         self.transforms = {}
         self.metadata = {}
         
+        # Performance monitoring
+        self.performance_monitor = PerformanceMonitor()
+        
         # Validate files
         for i, f in enumerate(self.cycle_files):
             if not f.exists():
@@ -98,20 +102,21 @@ class EvosRegistrationPipeline:
         dict
             Dictionary mapping cycle index to (shift, error) tuple
         """
-        self._print("Phase 1: Coarse Alignment")
-        self._print(f"  Using pyramid level {self.coarse_pyramid_level}")
-        
-        self.coarse_shifts = coarse_align_all_cycles(
-            self.cycle_files,
-            reference_idx=self.reference_idx,
-            pyramid_level=self.coarse_pyramid_level,
-            dapi_channel=self.dapi_channel
-        )
-        
-        self._print(f"  Reference cycle: {self.reference_idx}")
-        for i, (shift, error) in self.coarse_shifts.items():
-            if i != self.reference_idx:
-                self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+        with self.performance_monitor.phase("Coarse Alignment"):
+            self._print("Phase 1: Coarse Alignment")
+            self._print(f"  Using pyramid level {self.coarse_pyramid_level}")
+            
+            self.coarse_shifts = coarse_align_all_cycles(
+                self.cycle_files,
+                reference_idx=self.reference_idx,
+                pyramid_level=self.coarse_pyramid_level,
+                dapi_channel=self.dapi_channel
+            )
+            
+            self._print(f"  Reference cycle: {self.reference_idx}")
+            for i, (shift, error) in self.coarse_shifts.items():
+                if i != self.reference_idx:
+                    self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
         
         return self.coarse_shifts
     
@@ -136,35 +141,36 @@ class EvosRegistrationPipeline:
         if cycle_idx not in self.coarse_shifts:
             raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
         
-        self._print(f"Phase 2: Fine Registration - Cycle {cycle_idx}")
-        
-        # Get image shape from metadata
-        with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
-            shape = meta.shape_at_level(0)
-        
-        # Create tile grid
-        grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
-        self._print(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
-        
-        # Get coarse shift
-        coarse_shift, _ = self.coarse_shifts[cycle_idx]
-        
-        # Register all tiles
-        ref_reader = PyramidalOMETiffReader(self.cycle_files[self.reference_idx])
-        target_reader = PyramidalOMETiffReader(self.cycle_files[cycle_idx])
-        
-        try:
-            results = register_all_tiles(
-                ref_reader, target_reader, grid,
-                dapi_channel=self.dapi_channel,
-                coarse_shift=coarse_shift,
-                num_workers=self.num_workers
-            )
-            self.fine_shifts[cycle_idx] = results
-            self._print(f"  Registered {len(results)} tiles")
-        finally:
-            ref_reader.close()
-            target_reader.close()
+        with self.performance_monitor.phase(f"Fine Registration - Cycle {cycle_idx}"):
+            self._print(f"Phase 2: Fine Registration - Cycle {cycle_idx}")
+            
+            # Get image shape from metadata
+            with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
+                shape = meta.shape_at_level(0)
+            
+            # Create tile grid
+            grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
+            self._print(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
+            
+            # Get coarse shift
+            coarse_shift, _ = self.coarse_shifts[cycle_idx]
+            
+            # Register all tiles
+            ref_reader = PyramidalOMETiffReader(self.cycle_files[self.reference_idx])
+            target_reader = PyramidalOMETiffReader(self.cycle_files[cycle_idx])
+            
+            try:
+                results = register_all_tiles(
+                    ref_reader, target_reader, grid,
+                    dapi_channel=self.dapi_channel,
+                    coarse_shift=coarse_shift,
+                    num_workers=self.num_workers
+                )
+                self.fine_shifts[cycle_idx] = results
+                self._print(f"  Registered {len(results)} tiles")
+            finally:
+                ref_reader.close()
+                target_reader.close()
         
         return results
     
@@ -196,35 +202,37 @@ class EvosRegistrationPipeline:
         if cycle_idx not in self.fine_shifts:
             raise ValueError(f"Fine registration not run for cycle {cycle_idx}")
         
-        self._print(f"Phase 3: Transform Fitting - Cycle {cycle_idx}")
-        
-        # Get image shape and create grid
-        with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
-            shape = meta.shape_at_level(0)
-        
-        grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
-        positions = get_tile_positions(grid)
-        
-        # Get shifts and errors
-        results = self.fine_shifts[cycle_idx]
-        shifts = np.array([r[0] for r in results])
-        errors = np.array([r[1] for r in results])
-        
-        # Filter outliers
-        inliers = filter_outliers(shifts, errors, max_shift=50.0, max_error=None)
-        num_inliers = np.sum(inliers)
-        self._print(f"  Inliers: {num_inliers}/{len(shifts)}")
-        
-        # Fit transform
-        if self.transform_type == 'similarity':
-            result = fit_similarity_transform(positions, shifts, inliers)
-        elif self.transform_type == 'affine':
-            result = fit_affine_transform(positions, shifts, inliers)
-        else:
-            raise ValueError(f"Unknown transform type: {self.transform_type}")
-        
-        self.transforms[cycle_idx] = result
-        self._print(f"  RMSE: {result['rmse']:.4f}")
+        with self.performance_monitor.phase(f"Transform Fitting - Cycle {cycle_idx}"):
+            self._print(f"Phase 3: Transform Fitting - Cycle {cycle_idx}")
+            
+            # Get image shape and create grid
+            with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
+                shape = meta.shape_at_level(0)
+            
+            grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
+            positions = get_tile_positions(grid)
+            
+            # Get shifts and errors
+            results = self.fine_shifts[cycle_idx]
+            shifts = np.array([r[0] for r in results])
+            errors = np.array([r[1] for r in results])
+            
+            # Filter outliers
+            inliers = filter_outliers(shifts, errors, max_shift=50.0, max_error=None)
+            num_inliers = np.sum(inliers)
+            self._print(f"  Inliers: {num_inliers}/{len(shifts)}")
+            
+            # Fit transform
+            if self.transform_type == 'similarity':
+                result = fit_similarity_transform(positions, shifts, inliers)
+            elif self.transform_type == 'affine':
+                result = fit_affine_transform(positions, shifts, inliers)
+            else:
+                raise ValueError(f"Unknown transform type: {self.transform_type}")
+            
+            result['transform_type'] = self.transform_type
+            self.transforms[cycle_idx] = result
+            self._print(f"  RMSE: {result['rmse']:.4f}")
         
         return result
     
@@ -248,21 +256,23 @@ class EvosRegistrationPipeline:
                 raise ValueError(f"Transform not fitted for cycle {cycle_idx}")
             transform_matrix = self.transforms[cycle_idx]['transform']
         
-        self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
-        self._print(f"  Writing to: {output_file}")
-        
-        write_aligned_cycle(
-            self.cycle_files[cycle_idx],
-            output_file,
-            transform_matrix,
-            pixel_size=self.pixel_size,
-            order=1,
-            num_pyramid_levels=4
-        )
-        
-        self._print(f"  [OK] Complete: {output_file}")
+        with self.performance_monitor.phase(f"Apply Transform - Cycle {cycle_idx}"):
+            self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
+            self._print(f"  Writing to: {output_file}")
+            
+            write_aligned_cycle(
+                self.cycle_files[cycle_idx],
+                output_file,
+                transform_matrix,
+                pixel_size=self.pixel_size,
+                order=1,
+                num_pyramid_levels=4
+            )
+            
+            self._print(f"  [OK] Complete: {output_file}")
     
-    def run_full_pipeline(self, output_dir: Path) -> Dict[int, Path]:
+    def run_full_pipeline(self, output_dir: Path, 
+                         report_path: Optional[Path] = None) -> Dict[int, Path]:
         """
         Run complete registration pipeline for all cycles.
         
@@ -270,6 +280,8 @@ class EvosRegistrationPipeline:
         ----------
         output_dir : Path
             Directory for output aligned files
+        report_path : Path, optional
+            Path to save JSON performance report (if None, only prints summary)
             
         Returns
         -------
@@ -300,6 +312,14 @@ class EvosRegistrationPipeline:
         for i in range(len(self.cycle_files)):
             self.fit_transform(i)
             self._print("")
+            
+            # Record accuracy metrics
+            coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
+            fine_shifts = self.fine_shifts.get(i, [])
+            transform_result = self.transforms.get(i, {})
+            self.performance_monitor.record_accuracy(
+                i, coarse_shift, coarse_error, fine_shifts, transform_result
+            )
         
         # Phase 4: Apply transforms and write output
         output_files = {}
@@ -309,9 +329,21 @@ class EvosRegistrationPipeline:
             output_files[i] = output_file
             self._print("")
         
+        # Finalize performance monitoring
+        self.performance_monitor.finalize()
+        
+        # Generate and print summary report
         self._print("=" * 60)
         self._print("Registration Complete!")
         self._print("=" * 60)
         self._print("")
+        
+        # Print performance summary
+        self.performance_monitor.print_summary()
+        
+        # Save JSON report if requested
+        if report_path:
+            self.performance_monitor.generate_report(str(report_path))
+            self._print(f"\n[OK] Performance report saved to: {report_path}")
         
         return output_files

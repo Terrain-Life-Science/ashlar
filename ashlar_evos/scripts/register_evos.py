@@ -105,6 +105,13 @@ Examples:
         help='Suppress progress messages'
     )
     
+    parser.add_argument(
+        '--report', '-R',
+        type=pathlib.Path,
+        default=None,
+        help='Path to save JSON performance report (optional)'
+    )
+    
     args = parser.parse_args(argv)
     
     # Validate inputs
@@ -127,7 +134,10 @@ Examples:
     
     # Run pipeline
     try:
-        output_files = pipeline.run_full_pipeline(args.output_dir)
+        output_files = pipeline.run_full_pipeline(
+            args.output_dir,
+            report_path=args.report
+        )
         
         if not args.quiet:
             print()
