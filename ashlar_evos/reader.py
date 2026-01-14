@@ -78,9 +78,20 @@ class PyramidalOMETiffReader:
             2D array of the channel
         """
         zarr_img = self._get_zarr(level)
-        if channel >= zarr_img.shape[0]:
-            raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[0]-1})")
-        return np.array(zarr_img[channel, :, :, 0])
+        # Zarr array shape is typically (T, Z, C, Y, X, S) or (C, Y, X)
+        # Handle both cases
+        if len(zarr_img.shape) == 6:
+            # Shape is (T, Z, C, Y, X, S) - extract channel
+            if channel >= zarr_img.shape[2]:
+                raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[2]-1})")
+            return np.array(zarr_img[0, 0, channel, :, :, 0])  # T=0, Z=0, S=0
+        elif len(zarr_img.shape) == 3:
+            # Shape is (C, Y, X) - direct access
+            if channel >= zarr_img.shape[0]:
+                raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[0]-1})")
+            return np.array(zarr_img[channel, :, :])
+        else:
+            raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")
     
     def get_tile(self, level: int, channel: int, y: int, x: int, 
                  size: Tuple[int, int]) -> np.ndarray:
@@ -107,15 +118,30 @@ class PyramidalOMETiffReader:
         """
         zarr_img = self._get_zarr(level)
         h, w = size
-        # Handle boundary conditions
-        h_max, w_max = zarr_img.shape[1], zarr_img.shape[2]
-        h = min(h, h_max - y)
-        w = min(w, w_max - x)
         
-        if y < 0 or x < 0 or y >= h_max or x >= w_max:
-            raise ValueError(f"Tile position ({y}, {x}) out of bounds")
-        
-        return np.array(zarr_img[channel, y:y+h, x:x+w, 0])
+        # Handle different zarr shapes
+        if len(zarr_img.shape) == 6:
+            # Shape is (T, Z, C, Y, X, S)
+            if channel >= zarr_img.shape[2]:
+                raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[2]-1})")
+            h_max, w_max = zarr_img.shape[3], zarr_img.shape[4]
+            h = min(h, h_max - y)
+            w = min(w, w_max - x)
+            if y < 0 or x < 0 or y >= h_max or x >= w_max:
+                raise ValueError(f"Tile position ({y}, {x}) out of bounds")
+            return np.array(zarr_img[0, 0, channel, y:y+h, x:x+w, 0])
+        elif len(zarr_img.shape) == 3:
+            # Shape is (C, Y, X)
+            if channel >= zarr_img.shape[0]:
+                raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[0]-1})")
+            h_max, w_max = zarr_img.shape[1], zarr_img.shape[2]
+            h = min(h, h_max - y)
+            w = min(w, w_max - x)
+            if y < 0 or x < 0 or y >= h_max or x >= w_max:
+                raise ValueError(f"Tile position ({y}, {x}) out of bounds")
+            return np.array(zarr_img[channel, y:y+h, x:x+w])
+        else:
+            raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")
     
     def get_num_levels(self) -> int:
         """Get number of pyramid levels."""
@@ -125,7 +151,13 @@ class PyramidalOMETiffReader:
     def get_num_channels(self) -> int:
         """Get number of channels."""
         zarr_img = self._get_zarr(0)
-        return zarr_img.shape[0]
+        # Handle different zarr shapes
+        if len(zarr_img.shape) == 6:
+            return zarr_img.shape[2]  # C dimension
+        elif len(zarr_img.shape) == 3:
+            return zarr_img.shape[0]  # C dimension
+        else:
+            raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")
     
     def get_shape_at_level(self, level: int) -> Tuple[int, int]:
         """
@@ -142,7 +174,13 @@ class PyramidalOMETiffReader:
             (height, width) in pixels
         """
         zarr_img = self._get_zarr(level)
-        return (zarr_img.shape[1], zarr_img.shape[2])
+        # Handle different zarr shapes
+        if len(zarr_img.shape) == 6:
+            return (zarr_img.shape[3], zarr_img.shape[4])  # Y, X dimensions
+        elif len(zarr_img.shape) == 3:
+            return (zarr_img.shape[1], zarr_img.shape[2])  # Y, X dimensions
+        else:
+            raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")
     
     def close(self):
         """Close file handles and clear cache."""
