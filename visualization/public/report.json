@@ -1,7 +1,7 @@
 {
   "summary": {
-    "total_time_seconds": 6.3418800830841064,
-    "total_time_formatted": "6.34 seconds",
+    "total_time_seconds": 4.325442790985107,
+    "total_time_formatted": "4.33 seconds",
     "num_cycles": 3,
     "average_rmse": 0.31402619928121567,
     "average_mean_residual": 0.0,
@@ -11,23 +11,35 @@
     "average_std_shift_y": 0.0
   },
   "performance": {
-    "start_time": "2026-01-14T15:24:57.630173",
-    "end_time": "2026-01-14T15:25:03.972054",
-    "elapsed_time_seconds": 6.3418800830841064,
+    "start_time": "2026-01-14T16:05:36.663478",
+    "end_time": "2026-01-14T16:05:40.988921",
+    "elapsed_time_seconds": 4.325442790985107,
     "phases": {
-      "Coarse Alignment": 1.1243574619293213,
-      "Transform Creation - Cycle 1": 1.4066696166992188e-05,
-      "Transform Creation - Cycle 2": 1.0251998901367188e-05,
-      "Apply Transform - Cycle 0": 1.7546710968017578,
-      "Apply Transform - Cycle 1": 1.7011675834655762,
-      "Apply Transform - Cycle 2": 1.7592999935150146
+      "Coarse Alignment": 0.9849154949188232,
+      "Transform Creation - Cycle 1": 1.2874603271484375e-05,
+      "Transform Creation - Cycle 2": 9.5367431640625e-06,
+      "Apply Transform - Cycle 0": 1.2002027034759521,
+      "Apply Transform - Cycle 1": 1.0534029006958008,
+      "Apply Transform - Cycle 2": 1.084824562072754
     },
-    "cpu_cores_used": 0,
-    "cpu_threads_used": 0,
+    "cpu_cores_used": 16,
+    "cpu_threads_used": 16,
     "peak_memory_mb": 0.0,
     "current_memory_mb": 0.0,
     "gpu_available": false,
-    "gpu_cores_used": 0
+    "gpu_cores_used": 0,
+    "input_file_sizes_mb": {
+      "synthetic_test_images\\cycle_00.ome.tif": 25.192057609558105,
+      "synthetic_test_images\\cycle_01.ome.tif": 27.322260856628418,
+      "synthetic_test_images\\cycle_02.ome.tif": 27.319579124450684
+    },
+    "output_file_sizes_mb": {
+      "aligned_output\\aligned_cycle_00.ome.tif": 25.191941261291504,
+      "aligned_output\\aligned_cycle_01.ome.tif": 29.04378032684326,
+      "aligned_output\\aligned_cycle_02.ome.tif": 28.890414237976074
+    },
+    "total_input_size_mb": 79.8338975906372,
+    "total_output_size_mb": 83.12613582611084
   },
   "accuracy_by_cycle": [
     {
