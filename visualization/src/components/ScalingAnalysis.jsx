@@ -76,7 +76,7 @@ function ScalingAnalysis({ data }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="scale" 
-                label={{ value: 'Scale Factor', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Scale Factor', position: 'top', offset: 10 }}
               />
               <YAxis 
                 label={{ value: 'Time (seconds)', angle: -90, position: 'insideLeft' }}
@@ -114,7 +114,7 @@ function ScalingAnalysis({ data }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="scale" 
-                label={{ value: 'Scale Factor', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Scale Factor', position: 'top', offset: 10 }}
               />
               <YAxis 
                 label={{ value: 'Memory (MB)', angle: -90, position: 'insideLeft' }}
@@ -145,7 +145,7 @@ function ScalingAnalysis({ data }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="scale" 
-                label={{ value: 'Scale Factor', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Scale Factor', position: 'top', offset: 10 }}
               />
               <YAxis 
                 label={{ value: 'Size (MB)', angle: -90, position: 'insideLeft' }}
@@ -177,7 +177,7 @@ function ScalingAnalysis({ data }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="scale" 
-                label={{ value: 'Scale Factor', position: 'insideBottom', offset: -5 }}
+                label={{ value: 'Scale Factor', position: 'top', offset: 10 }}
               />
               <YAxis 
                 label={{ value: 'RMSE (pixels)', angle: -90, position: 'insideLeft' }}
