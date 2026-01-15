@@ -131,7 +131,8 @@ def write_aligned_cycle(input_file: Path,
                        use_tiled_transform: bool = True,
                        tile_size: int = 4096,
                        tile_overlap: int = 512,
-                       use_gpu: bool = False) -> None:
+                       use_gpu: bool = False,
+                       use_memmap: bool = False) -> None:
     """
     Apply transform to a cycle and write as pyramidal OME-TIFF.
     
@@ -195,7 +196,8 @@ def write_aligned_cycle(input_file: Path,
             for channel in range(num_channels):
                 # Apply transform to base level
                 transformed = apply_transform_to_channel(
-                    reader, channel, transform_matrix, level=0, order=order, use_gpu=use_gpu
+                    reader, channel, transform_matrix, level=0, order=order, 
+                    use_gpu=use_gpu, use_memmap=use_memmap
                 )
                 transformed_channels.append(transformed)
     

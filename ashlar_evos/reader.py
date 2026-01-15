@@ -76,7 +76,7 @@ class PyramidalOMETiffReader:
         """
         return self._get_zarr(level)
     
-    def get_channel(self, level: int = 0, channel: int = 0) -> np.ndarray:
+    def get_channel(self, level: int = 0, channel: int = 0, use_memmap: bool = False) -> np.ndarray:
         """
         Extract specific channel from pyramid level.
         
@@ -86,11 +86,14 @@ class PyramidalOMETiffReader:
             Pyramid level (0 = base/full resolution)
         channel : int
             Channel index (0 = DAPI for Evos S1000)
+        use_memmap : bool
+            If True, return zarr array view (memory-mapped, default: False)
+            Note: Zarr arrays are already memory-mapped, this just avoids conversion
             
         Returns
         -------
-        np.ndarray
-            2D array of the channel
+        np.ndarray or zarr.Array
+            2D array of the channel (zarr array if use_memmap=True)
         """
         zarr_img = self._get_zarr(level)
         # Zarr array shape is typically (T, Z, C, Y, X, S) or (C, Y, X)
@@ -99,14 +102,21 @@ class PyramidalOMETiffReader:
             # Shape is (T, Z, C, Y, X, S) - extract channel
             if channel >= zarr_img.shape[2]:
                 raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[2]-1})")
-            return np.array(zarr_img[0, 0, channel, :, :, 0])  # T=0, Z=0, S=0
+            channel_data = zarr_img[0, 0, channel, :, :, 0]  # T=0, Z=0, S=0
         elif len(zarr_img.shape) == 3:
             # Shape is (C, Y, X) - direct access
             if channel >= zarr_img.shape[0]:
                 raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[0]-1})")
-            return np.array(zarr_img[channel, :, :])
+            channel_data = zarr_img[channel, :, :]
         else:
             raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")
+        
+        if use_memmap:
+            # Return zarr array directly (already memory-mapped)
+            return channel_data
+        else:
+            # Convert to numpy array (loads into memory)
+            return np.array(channel_data)
     
     def get_tile(self, level: int, channel: int, y: int, x: int, 
                  size: Tuple[int, int]) -> np.ndarray:

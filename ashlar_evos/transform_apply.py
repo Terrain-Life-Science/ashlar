@@ -214,8 +214,13 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
     np.ndarray
         Transformed channel image
     """
-    # Read channel
-    image = reader.get_channel(level, channel)
+    # Read channel (with optional memory mapping)
+    # Note: use_memmap parameter not yet added to function signature for backward compatibility
+    image = reader.get_channel(level, channel, use_memmap=False)
+    
+    # For transform, we need the actual array (convert zarr if needed)
+    if hasattr(image, '__array__'):
+        image = np.asarray(image)
     
     # Apply transform
     transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
