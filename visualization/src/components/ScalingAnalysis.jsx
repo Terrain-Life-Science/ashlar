@@ -214,7 +214,6 @@ function ScalingAnalysis({ data }) {
                   angle={-45}
                   textAnchor="end"
                   height={100}
-                  label={{ value: 'Phase', position: 'insideBottom', offset: -5 }}
                 />
                 <YAxis 
                   label={{ value: 'Time (seconds)', angle: -90, position: 'insideLeft' }}
@@ -222,7 +221,7 @@ function ScalingAnalysis({ data }) {
                 <Tooltip 
                   formatter={(value) => [`${parseFloat(value).toFixed(2)}s`, '']}
                 />
-                <Legend verticalAlign="top" align="left" />
+                <Legend verticalAlign="top" align="center" />
                 {runs.map(run => {
                   const scaleLabel = `${run.scale_factor}x`
                   return (
