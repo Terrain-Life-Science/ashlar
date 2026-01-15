@@ -184,7 +184,7 @@ def generate_synthetic_cycle(
     if shift != (0.0, 0.0):
         shifted_stack = np.zeros_like(img_stack)
         for c in range(3):
-            shifted_stack[c] = apply_shift(img_stack[c], shift[1], shift[0])
+            shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
         img_stack = shifted_stack
     
     # Convert to 16-bit
@@ -346,9 +346,9 @@ Examples:
         parser.error("--shifts requires exactly 6 values (dx0 dy0 dx1 dy1 dx2 dy2)")
     
     shifts = [
-        (args.shifts[1], args.shifts[0]),  # Cycle 0: (dy, dx)
-        (args.shifts[3], args.shifts[2]),  # Cycle 1: (dy, dx)
-        (args.shifts[5], args.shifts[4]),  # Cycle 2: (dy, dx)
+        (args.shifts[0], args.shifts[1]),  # Cycle 0: (dx, dy)
+        (args.shifts[2], args.shifts[3]),  # Cycle 1: (dx, dy)
+        (args.shifts[4], args.shifts[5]),  # Cycle 2: (dx, dy)
     ]
     
     base_shape = tuple(args.size)
@@ -383,7 +383,7 @@ Examples:
     print()
     print("Expected shifts (for validation):")
     for i, shift in enumerate(shifts):
-        print(f"  Cycle {i}: dx={shift[1]:.2f}, dy={shift[0]:.2f} pixels")
+        print(f"  Cycle {i}: dx={shift[0]:.2f}, dy={shift[1]:.2f} pixels")
     print()
     print("You can now test registration algorithms on these images.")
     print("The known shifts can be used to validate registration accuracy.")

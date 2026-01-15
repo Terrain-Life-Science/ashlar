@@ -35,8 +35,8 @@ def generate_multi_scale_images(
     num_pyramid_levels : int
         Number of pyramid levels to generate (default: 4)
     shifts : list of tuples, optional
-        Shifts for each cycle as [(dy0, dx0), (dy1, dx1), (dy2, dx2)]
-        Default: [(0.0, 0.0), (-1.8, 2.5), (5.2, 8.3)]
+        Shifts for each cycle as [(dx0, dy0), (dx1, dy1), (dx2, dy2)]
+        Default: [(0.0, 0.0), (2.5, -1.8), (8.3, 5.2)]
     
     Returns
     -------
@@ -46,9 +46,9 @@ def generate_multi_scale_images(
     if shifts is None:
         # Default shifts: Cycle 0: (0, 0), Cycle 1: (2.5, -1.8), Cycle 2: (8.3, 5.2)
         shifts = [
-            (0.0, 0.0),      # Cycle 0: (dy, dx) - reference
-            (-1.8, 2.5),     # Cycle 1: (dy, dx)
-            (5.2, 8.3),      # Cycle 2: (dy, dx)
+            (0.0, 0.0),      # Cycle 0: (dx, dy) - reference
+            (2.5, -1.8),     # Cycle 1: (dx, dy)
+            (8.3, 5.2),      # Cycle 2: (dx, dy)
         ]
     
     base_output_dir = pathlib.Path(base_output_dir)
@@ -70,7 +70,7 @@ def generate_multi_scale_images(
     print(f"Channels per cycle: 3 (DAPI + 2 fluorescence)")
     print(f"Shifts (constant in pixels across all scales):")
     for i, shift in enumerate(shifts):
-        print(f"  Cycle {i}: dx={shift[1]:.2f}, dy={shift[0]:.2f} pixels")
+        print(f"  Cycle {i}: dx={shift[0]:.2f}, dy={shift[1]:.2f} pixels")
     print()
     
     # Generate images for each scale
@@ -171,9 +171,9 @@ Examples:
         parser.error("--shifts requires exactly 6 values (dx0 dy0 dx1 dy1 dx2 dy2)")
     
     shifts = [
-        (args.shifts[1], args.shifts[0]),  # Cycle 0: (dy, dx)
-        (args.shifts[3], args.shifts[2]),  # Cycle 1: (dy, dx)
-        (args.shifts[5], args.shifts[4]),  # Cycle 2: (dy, dx)
+        (args.shifts[0], args.shifts[1]),  # Cycle 0: (dx, dy)
+        (args.shifts[2], args.shifts[3]),  # Cycle 1: (dx, dy)
+        (args.shifts[4], args.shifts[5]),  # Cycle 2: (dx, dy)
     ]
     
     try:
