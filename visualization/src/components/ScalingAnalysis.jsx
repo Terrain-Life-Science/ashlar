@@ -222,7 +222,7 @@ function ScalingAnalysis({ data }) {
                 <Tooltip 
                   formatter={(value) => [`${parseFloat(value).toFixed(2)}s`, '']}
                 />
-                <Legend />
+                <Legend verticalAlign="top" align="left" />
                 {runs.map(run => {
                   const scaleLabel = `${run.scale_factor}x`
                   return (
