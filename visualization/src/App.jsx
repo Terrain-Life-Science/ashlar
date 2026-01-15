@@ -4,6 +4,7 @@ import PerformanceMetrics from './components/PerformanceMetrics'
 import AccuracyCharts from './components/AccuracyCharts'
 import FileSizeMetrics from './components/FileSizeMetrics'
 import CycleAccuracyCard from './components/CycleAccuracyCard'
+import ScalingAnalysis from './components/ScalingAnalysis'
 import './App.css'
 
 function App() {
@@ -80,11 +81,23 @@ function App() {
         <p>Registration pipeline performance and accuracy metrics</p>
       </header>
       <main className="app-main">
-        <SummaryCard data={data} />
-        <PerformanceMetrics data={data} />
-        <FileSizeMetrics data={data} />
-        <AccuracyCharts data={data} />
-        <CycleAccuracyCard data={data} />
+        {/* Check if this is a multi-scale report */}
+        {data.runs && Array.isArray(data.runs) && data.runs.length > 0 ? (
+          <>
+            <ScalingAnalysis data={data} />
+            {/* For multi-scale reports, show summary for each run or aggregated view */}
+            <SummaryCard data={data} />
+          </>
+        ) : (
+          <>
+            {/* Single-run report - show all components */}
+            <SummaryCard data={data} />
+            <PerformanceMetrics data={data} />
+            <FileSizeMetrics data={data} />
+            <AccuracyCharts data={data} />
+            <CycleAccuracyCard data={data} />
+          </>
+        )}
       </main>
     </div>
   )
