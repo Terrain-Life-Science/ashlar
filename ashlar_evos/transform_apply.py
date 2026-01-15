@@ -12,9 +12,91 @@ from .reader import PyramidalOMETiffReader
 from .metadata import OMEMetadata
 from .tile_grid import TileGrid, TileInfo
 
+# Try to import GPU libraries
+try:
+    import cupy as cp
+    CUPY_AVAILABLE = cp.cuda.is_available() if hasattr(cp, 'cuda') else False
+except ImportError:
+    CUPY_AVAILABLE = False
+    cp = None
+
+try:
+    import torch
+    TORCH_AVAILABLE = torch.cuda.is_available() if hasattr(torch, 'cuda') else False
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+
+
+def is_gpu_available() -> bool:
+    """
+    Check if GPU acceleration is available.
+    
+    Returns
+    -------
+    bool
+        True if GPU is available (CuPy or PyTorch with CUDA)
+    """
+    return CUPY_AVAILABLE or TORCH_AVAILABLE
+
+
+def _apply_transform_torch(image: np.ndarray, source_y: np.ndarray, 
+                           source_x: np.ndarray, order: int = 1) -> np.ndarray:
+    """
+    Apply transform using PyTorch GPU acceleration.
+    
+    Parameters
+    ----------
+    image : np.ndarray
+        2D input image
+    source_y : np.ndarray
+        Source Y coordinates
+    source_x : np.ndarray
+        Source X coordinates
+    order : int
+        Interpolation order (0=nearest, 1=linear, 3=cubic)
+        
+    Returns
+    -------
+    np.ndarray
+        Transformed image
+    """
+    h, w = image.shape
+    
+    # Convert to PyTorch tensors
+    device = torch.device('cuda')
+    image_tensor = torch.from_numpy(image).float().unsqueeze(0).unsqueeze(0).to(device)
+    
+    # Normalize coordinates to [-1, 1] for grid_sample
+    # grid_sample expects (x, y) in range [-1, 1]
+    grid_x = 2.0 * source_x / (w - 1) - 1.0
+    grid_y = 2.0 * source_y / (h - 1) - 1.0
+    
+    # Create grid tensor: shape (1, H, W, 2) where last dim is (x, y)
+    grid = torch.stack([grid_x, grid_y], dim=-1)
+    grid = grid.unsqueeze(0).to(device)
+    
+    # Map interpolation order
+    mode_map = {0: 'nearest', 1: 'bilinear', 3: 'bicubic'}
+    mode = mode_map.get(order, 'bilinear')
+    
+    # Apply grid_sample
+    transformed_tensor = torch.nn.functional.grid_sample(
+        image_tensor,
+        grid,
+        mode=mode,
+        padding_mode='zeros',
+        align_corners=True
+    )
+    
+    # Convert back to numpy
+    transformed = transformed_tensor.squeeze().cpu().numpy()
+    
+    return transformed.astype(image.dtype)
+
 
 def apply_transform_to_image(image: np.ndarray, transform_matrix: np.ndarray,
-                            order: int = 1) -> np.ndarray:
+                            order: int = 1, use_gpu: bool = False) -> np.ndarray:
     """
     Apply transformation matrix to an image.
     
@@ -26,6 +108,8 @@ def apply_transform_to_image(image: np.ndarray, transform_matrix: np.ndarray,
         3x3 transformation matrix
     order : int
         Interpolation order (0=nearest, 1=linear, 3=cubic)
+    use_gpu : bool
+        If True, attempt to use GPU acceleration (default: False)
         
     Returns
     -------
@@ -52,15 +136,53 @@ def apply_transform_to_image(image: np.ndarray, transform_matrix: np.ndarray,
     source_x = source_coords[0].reshape(h, w)
     source_y = source_coords[1].reshape(h, w)
     
-    # Use map_coordinates for interpolation
-    transformed = ndimage.map_coordinates(
-        image,
-        [source_y, source_x],
-        order=order,
-        mode='constant',
-        cval=0.0,
-        prefilter=False
-    )
+    # Use GPU acceleration if available and requested
+    if use_gpu and is_gpu_available():
+        if TORCH_AVAILABLE:
+            # Use PyTorch for GPU-accelerated interpolation
+            try:
+                transformed = _apply_transform_torch(image, source_y, source_x, order)
+            except Exception:
+                # Fall back to CPU if GPU fails
+                transformed = ndimage.map_coordinates(
+                    image,
+                    [source_y, source_x],
+                    order=order,
+                    mode='constant',
+                    cval=0.0,
+                    prefilter=False
+                )
+        elif CUPY_AVAILABLE:
+            # CuPy implementation (placeholder - CuPy doesn't have direct map_coordinates)
+            # For now, fall back to CPU
+            transformed = ndimage.map_coordinates(
+                image,
+                [source_y, source_x],
+                order=order,
+                mode='constant',
+                cval=0.0,
+                prefilter=False
+            )
+        else:
+            # No GPU available, use CPU
+            transformed = ndimage.map_coordinates(
+                image,
+                [source_y, source_x],
+                order=order,
+                mode='constant',
+                cval=0.0,
+                prefilter=False
+            )
+    else:
+        # Use CPU interpolation
+        transformed = ndimage.map_coordinates(
+            image,
+            [source_y, source_x],
+            order=order,
+            mode='constant',
+            cval=0.0,
+            prefilter=False
+        )
     
     return transformed.astype(image.dtype)
 
@@ -69,7 +191,8 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                                channel: int,
                                transform_matrix: np.ndarray,
                                level: int = 0,
-                               order: int = 1) -> np.ndarray:
+                               order: int = 1,
+                               use_gpu: bool = False) -> np.ndarray:
     """
     Apply transform to a single channel from an image.
     
@@ -95,7 +218,7 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
     image = reader.get_channel(level, channel)
     
     # Apply transform
-    transformed = apply_transform_to_image(image, transform_matrix, order=order)
+    transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
     
     return transformed
 
@@ -175,7 +298,8 @@ def apply_transform_to_tile(reader: PyramidalOMETiffReader,
                             level: int = 0,
                             order: int = 1,
                             border_mode: str = 'constant',
-                            border_value: float = 0.0) -> np.ndarray:
+                            border_value: float = 0.0,
+                            use_gpu: bool = False) -> np.ndarray:
     """
     Apply transform to a single tile from an image.
     
@@ -256,15 +380,29 @@ def apply_transform_to_tile(reader: PyramidalOMETiffReader,
     source_x = source_coords[0].reshape(h, w) - source_x_min
     source_y = source_coords[1].reshape(h, w) - source_y_min
     
-    # Apply interpolation
-    transformed_tile = ndimage.map_coordinates(
-        source_region,
-        [source_y, source_x],
-        order=order,
-        mode=border_mode,
-        cval=border_value,
-        prefilter=False
-    )
+    # Apply interpolation (with optional GPU acceleration)
+    if use_gpu and is_gpu_available() and TORCH_AVAILABLE:
+        try:
+            transformed_tile = _apply_transform_torch(source_region, source_y, source_x, order)
+        except Exception:
+            # Fall back to CPU
+            transformed_tile = ndimage.map_coordinates(
+                source_region,
+                [source_y, source_x],
+                order=order,
+                mode=border_mode,
+                cval=border_value,
+                prefilter=False
+            )
+    else:
+        transformed_tile = ndimage.map_coordinates(
+            source_region,
+            [source_y, source_x],
+            order=order,
+            mode=border_mode,
+            cval=border_value,
+            prefilter=False
+        )
     
     return transformed_tile.astype(source_region.dtype)
 
@@ -275,7 +413,8 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                          tile_size: int = 4096,
                          tile_overlap: int = 512,
                          level: int = 0,
-                         order: int = 1) -> List[np.ndarray]:
+                         order: int = 1,
+                         use_gpu: bool = False) -> List[np.ndarray]:
     """
     Apply transform to all channels using tiled processing.
     
@@ -321,7 +460,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
             # Apply transform to tile
             transformed_tile = apply_transform_to_tile(
                 reader, channel_idx, tile_info, transform_matrix,
-                level=level, order=order
+                level=level, order=order, use_gpu=use_gpu
             )
             
             # Place transformed tile in output

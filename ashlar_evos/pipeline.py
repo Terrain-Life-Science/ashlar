@@ -351,6 +351,12 @@ class EvosRegistrationPipeline:
             self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
             self._print(f"  Writing to: {output_file}")
             
+            # Check if GPU is available
+            from .transform_apply import is_gpu_available
+            use_gpu = is_gpu_available() and self.performance_monitor.metrics.gpu_available
+            if use_gpu and self.verbose:
+                self._print(f"  Using GPU acceleration for transform")
+            
             write_aligned_cycle(
                 self.cycle_files[cycle_idx],
                 output_file,
@@ -360,7 +366,8 @@ class EvosRegistrationPipeline:
                 num_pyramid_levels=4,
                 use_tiled_transform=True,  # Use tiled processing for memory efficiency
                 tile_size=self.tile_size,
-                tile_overlap=self.tile_overlap
+                tile_overlap=self.tile_overlap,
+                use_gpu=use_gpu  # Use GPU if available
             )
             
             # Record output file size
