@@ -10,6 +10,7 @@ import pathlib
 import sys
 import json
 import glob
+import numpy as np
 from typing import Dict, List, Optional
 from ashlar_evos.pipeline import EvosRegistrationPipeline
 from ashlar_evos.performance import PerformanceMonitor
@@ -106,15 +107,39 @@ def run_registration_for_scale(
             print(f"  {f.name}")
         print()
     
-    # Create pipeline with scale metadata
+    # Scale tile size proportionally to maintain constant tile count
+    # This ensures linear time scaling instead of quadratic
+    base_tile_size = 4096
+    scaled_tile_size = int(base_tile_size * scale_factor)
+    
+    # Scale tile overlap proportionally
+    base_overlap = 512
+    scaled_overlap = int(base_overlap * scale_factor)
+    
+    # Calculate adaptive pyramid level for consistent effective resolution
+    # Target: ~256×256 pixels for coarse alignment (fast and accurate)
+    target_effective_size = 256
+    image_dimension = max(image_size['width'], image_size['height'])
+    # Calculate pyramid level: level N means image is 2^N times smaller
+    adaptive_pyramid_level = max(0, int(np.log2(image_dimension / target_effective_size)))
+    # Clamp to reasonable range (0-4 pyramid levels typically available)
+    adaptive_pyramid_level = min(adaptive_pyramid_level, 4)
+    
+    if verbose:
+        print(f"  Scaled tile size: {scaled_tile_size} (base: {base_tile_size})")
+        print(f"  Scaled tile overlap: {scaled_overlap} (base: {base_overlap})")
+        print(f"  Adaptive pyramid level: {adaptive_pyramid_level} (target: ~{target_effective_size}×{target_effective_size} effective)")
+        print()
+    
+    # Create pipeline with scale metadata and scaled parameters
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
         reference_idx=0,
         dapi_channel=0,
         pixel_size=pixel_size,
-        coarse_pyramid_level=coarse_level,
-        tile_size=tile_size,
-        tile_overlap=tile_overlap,
+        coarse_pyramid_level=adaptive_pyramid_level,
+        tile_size=scaled_tile_size,
+        tile_overlap=scaled_overlap,
         transform_type=transform_type,
         num_workers=num_workers,
         verbose=verbose,
