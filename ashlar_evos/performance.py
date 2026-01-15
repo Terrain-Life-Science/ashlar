@@ -313,7 +313,10 @@ class PerformanceMonitor:
         self.metrics.end_time = time.time()
         self._update_memory()
     
-    def generate_report(self, output_path: Optional[str] = None) -> Dict:
+    def generate_report(self, 
+                       output_path: Optional[str] = None,
+                       scale_factor: Optional[float] = None,
+                       image_size: Optional[Dict[str, int]] = None) -> Dict:
         """
         Generate summary report.
         
@@ -321,6 +324,10 @@ class PerformanceMonitor:
         ----------
         output_path : str, optional
             Path to save JSON report (if None, returns dict only)
+        scale_factor : float, optional
+            Scale factor for this run (for multi-scale reports)
+        image_size : dict, optional
+            Dictionary with 'width' and 'height' keys (for multi-scale reports)
             
         Returns
         -------
@@ -364,11 +371,103 @@ class PerformanceMonitor:
             'accuracy_by_cycle': [m.to_dict() for m in self.accuracy_metrics],
         }
         
+        # Add scale metadata if provided
+        if scale_factor is not None:
+            report['scale_factor'] = scale_factor
+        if image_size is not None:
+            report['image_size'] = image_size
+        
         if output_path:
             with open(output_path, 'w') as f:
                 json.dump(report, f, indent=2)
         
         return report
+    
+    @staticmethod
+    def generate_multi_run_report(runs: List[Dict], 
+                                  output_path: Optional[str] = None) -> Dict:
+        """
+        Generate combined multi-run report from multiple single-run reports.
+        
+        Parameters
+        ----------
+        runs : list of dict
+            List of single-run report dictionaries (each should have scale_factor and image_size)
+        output_path : str, optional
+            Path to save JSON report (if None, returns dict only)
+            
+        Returns
+        -------
+        dict
+            Combined multi-run report with scaling_analysis section
+        """
+        import numpy as np
+        
+        if not runs:
+            raise ValueError("runs list cannot be empty")
+        
+        # Sort runs by scale factor
+        sorted_runs = sorted(runs, key=lambda r: r.get('scale_factor', 0))
+        
+        # Calculate scaling analysis metrics
+        scaling_analysis = {
+            'num_scales': len(sorted_runs),
+            'scale_factors': [r.get('scale_factor') for r in sorted_runs],
+        }
+        
+        # Calculate scaling ratios relative to baseline (1x)
+        baseline_run = next((r for r in sorted_runs if r.get('scale_factor') == 1.0), None)
+        
+        if baseline_run:
+            baseline_time = baseline_run.get('summary', {}).get('total_time_seconds', 0)
+            baseline_memory = baseline_run.get('performance', {}).get('peak_memory_mb', 0)
+            baseline_input_size = baseline_run.get('performance', {}).get('total_input_size_mb', 0)
+            baseline_output_size = baseline_run.get('performance', {}).get('total_output_size_mb', 0)
+            
+            scaling_ratios = []
+            for run in sorted_runs:
+                scale_factor = run.get('scale_factor', 1.0)
+                run_time = run.get('summary', {}).get('total_time_seconds', 0)
+                run_memory = run.get('performance', {}).get('peak_memory_mb', 0)
+                run_input_size = run.get('performance', {}).get('total_input_size_mb', 0)
+                run_output_size = run.get('performance', {}).get('total_output_size_mb', 0)
+                
+                ratio = {
+                    'scale_factor': scale_factor,
+                    'time_ratio': float(run_time / baseline_time) if baseline_time > 0 else 0.0,
+                    'memory_ratio': float(run_memory / baseline_memory) if baseline_memory > 0 else 0.0,
+                    'input_size_ratio': float(run_input_size / baseline_input_size) if baseline_input_size > 0 else 0.0,
+                    'output_size_ratio': float(run_output_size / baseline_output_size) if baseline_output_size > 0 else 0.0,
+                }
+                scaling_ratios.append(ratio)
+            
+            scaling_analysis['scaling_ratios'] = scaling_ratios
+        
+        # Calculate aggregated metrics across scales
+        all_times = [r.get('summary', {}).get('total_time_seconds', 0) for r in sorted_runs]
+        all_memories = [r.get('performance', {}).get('peak_memory_mb', 0) for r in sorted_runs]
+        all_rmse = [r.get('summary', {}).get('average_rmse', 0) for r in sorted_runs]
+        
+        scaling_analysis['aggregated_metrics'] = {
+            'total_time_across_scales': float(sum(all_times)),
+            'max_memory_across_scales': float(max(all_memories)) if all_memories else 0.0,
+            'min_memory_across_scales': float(min(all_memories)) if all_memories else 0.0,
+            'average_rmse_across_scales': float(np.mean(all_rmse)) if all_rmse else 0.0,
+            'max_rmse_across_scales': float(max(all_rmse)) if all_rmse else 0.0,
+            'min_rmse_across_scales': float(min(all_rmse)) if all_rmse else 0.0,
+        }
+        
+        # Create combined report
+        combined_report = {
+            'runs': sorted_runs,
+            'scaling_analysis': scaling_analysis,
+        }
+        
+        if output_path:
+            with open(output_path, 'w') as f:
+                json.dump(combined_report, f, indent=2)
+        
+        return combined_report
     
     def print_summary(self):
         """Print human-readable summary to console."""

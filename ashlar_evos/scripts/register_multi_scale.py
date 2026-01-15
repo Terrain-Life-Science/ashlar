@@ -12,6 +12,7 @@ import json
 import glob
 from typing import Dict, List, Optional
 from ashlar_evos.pipeline import EvosRegistrationPipeline
+from ashlar_evos.performance import PerformanceMonitor
 
 
 def find_cycle_files(input_dir: pathlib.Path) -> List[pathlib.Path]:
@@ -105,7 +106,7 @@ def run_registration_for_scale(
             print(f"  {f.name}")
         print()
     
-    # Create pipeline
+    # Create pipeline with scale metadata
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
         reference_idx=0,
@@ -117,7 +118,9 @@ def run_registration_for_scale(
         transform_type=transform_type,
         num_workers=num_workers,
         verbose=verbose,
-        coarse_only=coarse_only
+        coarse_only=coarse_only,
+        scale_factor=scale_factor,
+        image_size=image_size
     )
     
     # Run pipeline
@@ -126,12 +129,13 @@ def run_registration_for_scale(
         report_path=None  # We'll collect the report manually
     )
     
-    # Get report from performance monitor
-    report = pipeline.performance_monitor.generate_report()
+    # Get report from performance monitor (includes scale metadata)
+    report = pipeline.performance_monitor.generate_report(
+        scale_factor=scale_factor,
+        image_size=image_size
+    )
     
-    # Add scale-specific metadata
-    report['scale_factor'] = scale_factor
-    report['image_size'] = image_size
+    # Add directory metadata for traceability
     report['input_directory'] = str(input_dir)
     report['output_directory'] = str(output_dir)
     
@@ -241,14 +245,8 @@ def generate_multi_scale_report(
     if not runs:
         raise RuntimeError("No successful registration runs completed")
     
-    # Create combined report
-    combined_report = {
-        'runs': runs,
-        'scaling_analysis': {
-            'num_scales': len(runs),
-            'scale_factors': [r['scale_factor'] for r in runs],
-        }
-    }
+    # Create combined report using PerformanceMonitor method
+    combined_report = PerformanceMonitor.generate_multi_run_report(runs)
     
     if verbose:
         print("=" * 70)

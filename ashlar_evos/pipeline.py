@@ -37,7 +37,9 @@ class EvosRegistrationPipeline:
                  transform_type: str = 'similarity',
                  num_workers: Optional[int] = None,
                  verbose: bool = True,
-                 coarse_only: bool = False):
+                 coarse_only: bool = False,
+                 scale_factor: Optional[float] = None,
+                 image_size: Optional[Dict[str, int]] = None):
         """
         Initialize registration pipeline.
         
@@ -78,6 +80,8 @@ class EvosRegistrationPipeline:
         self.num_workers = num_workers
         self.verbose = verbose
         self.coarse_only = coarse_only
+        self.scale_factor = scale_factor
+        self.image_size = image_size
         
         # Results storage
         self.coarse_shifts = {}
@@ -403,7 +407,11 @@ class EvosRegistrationPipeline:
         
         # Save JSON report if requested
         if report_path:
-            self.performance_monitor.generate_report(str(report_path))
+            self.performance_monitor.generate_report(
+                str(report_path),
+                scale_factor=self.scale_factor,
+                image_size=self.image_size
+            )
             self._print(f"\n[OK] Performance report saved to: {report_path}")
         
         return output_files
