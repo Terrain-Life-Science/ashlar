@@ -92,22 +92,22 @@ def fit_similarity_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     
     n = len(positions)
     A = np.zeros((2 * n, 4))
-    b = np.zeros(2 * n)
+    b_vec = np.zeros(2 * n)
     
     # Fill matrix for x equation: x' = a*x - b*y + tx
     A[:n, 0] = positions[:, 1]  # x coefficients for a
     A[:n, 1] = -positions[:, 0]  # y coefficients for b
     A[:n, 2] = 1.0  # tx coefficient
-    b[:n] = target_positions[:, 1]  # x'
+    b_vec[:n] = target_positions[:, 1]  # x'
     
     # Fill matrix for y equation: y' = b*x + a*y + ty
     A[n:, 0] = positions[:, 0]  # y coefficients for a
     A[n:, 1] = positions[:, 1]  # x coefficients for b
     A[n:, 3] = 1.0  # ty coefficient
-    b[n:] = target_positions[:, 0]  # y'
+    b_vec[n:] = target_positions[:, 0]  # y'
     
     # Solve least squares
-    params, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
+    params, residuals, rank, s = np.linalg.lstsq(A, b_vec, rcond=None)
     a, b, tx, ty = params
     
     # Extract scale and rotation
@@ -190,22 +190,22 @@ def fit_affine_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     
     n = len(positions)
     A = np.zeros((2 * n, 6))
-    b = np.zeros(2 * n)
+    b_vec = np.zeros(2 * n)
     
     # Fill matrix for x equation
     A[:n, 0] = positions[:, 1]  # x coefficient for a
     A[:n, 1] = positions[:, 0]  # y coefficient for b
     A[:n, 2] = 1.0  # tx coefficient
-    b[:n] = target_positions[:, 1]  # x'
+    b_vec[:n] = target_positions[:, 1]  # x'
     
     # Fill matrix for y equation
     A[n:, 3] = positions[:, 1]  # x coefficient for c
     A[n:, 4] = positions[:, 0]  # y coefficient for d
     A[n:, 5] = 1.0  # ty coefficient
-    b[n:] = target_positions[:, 0]  # y'
+    b_vec[n:] = target_positions[:, 0]  # y'
     
     # Solve least squares
-    params, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
+    params, residuals, rank, s = np.linalg.lstsq(A, b_vec, rcond=None)
     a, b, tx, c, d, ty = params
     
     # Build transformation matrix
