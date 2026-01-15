@@ -21,6 +21,11 @@ from .transform_fitting import (
 )
 from .writer import write_aligned_cycle
 from .performance import PerformanceMonitor
+from .cloud_utils import (
+    calculate_optimal_pyramid_level,
+    optimize_worker_count,
+    detect_large_image
+)
 
 
 class EvosRegistrationPipeline:
@@ -96,6 +101,39 @@ class EvosRegistrationPipeline:
         for i, f in enumerate(self.cycle_files):
             if not f.exists():
                 raise FileNotFoundError(f"Cycle file not found: {f}")
+        
+        # Auto-configure pyramid level if image_size is provided
+        if image_size is not None and image_size.get('width') and image_size.get('height'):
+            try:
+                optimal_level = calculate_optimal_pyramid_level(
+                    image_size['width'],
+                    image_size['height'],
+                    self.cycle_files[0]
+                )
+                if self.verbose:
+                    self._print(f"Auto-configured pyramid level: {optimal_level} "
+                               f"(based on image size {image_size['width']}×{image_size['height']})")
+                self.coarse_pyramid_level = optimal_level
+            except Exception as e:
+                if self.verbose:
+                    self._print(f"Warning: Could not auto-configure pyramid level: {e}")
+        
+        # Detect large images and provide recommendations
+        if image_size is not None and image_size.get('width') and image_size.get('height'):
+            is_large, recommendations = detect_large_image(
+                image_size['width'],
+                image_size['height'],
+                self.tile_size,
+                self.tile_overlap
+            )
+            if is_large and self.verbose:
+                self._print(f"Large image detected: {recommendations['image_area_pixels']:,} pixels")
+                if recommendations['warnings']:
+                    for warning in recommendations['warnings']:
+                        self._print(f"  Warning: {warning}")
+                if recommendations['recommendations']:
+                    for rec in recommendations['recommendations']:
+                        self._print(f"  Recommendation: {rec}")
     
     def _print(self, message: str):
         """Print message if verbose."""

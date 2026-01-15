@@ -10,6 +10,7 @@ from typing import Tuple, List, Dict, Optional
 from .reader import PyramidalOMETiffReader
 from .tile_grid import TileGrid, TileInfo
 from .coarse_alignment import coarse_align_all_cycles
+from .cloud_utils import optimize_worker_count
 
 
 def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileInfo,
@@ -222,8 +223,12 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     import multiprocessing as mp
     import os
     
-    if num_workers is None:
-        num_workers = os.cpu_count() or 1
+    # Optimize worker count for cloud deployments
+    num_workers = optimize_worker_count(
+        num_tiles=len(grid),
+        num_workers=num_workers,
+        is_cloud=False  # Can be made configurable in the future
+    )
     
     # For small grids or single worker, use sequential processing
     if len(grid) <= 4 or num_workers == 1:
