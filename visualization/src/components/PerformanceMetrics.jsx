@@ -3,6 +3,11 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import './PerformanceMetrics.css'
 
 function PerformanceMetrics({ data }) {
+  // For multi-scale reports, this component is not shown (ScalingAnalysis handles it)
+  if (data && data.runs && Array.isArray(data.runs) && data.runs.length > 0) {
+    return null
+  }
+  
   if (!data || !data.performance) {
     return null
   }
