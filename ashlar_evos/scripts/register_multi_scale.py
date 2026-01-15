@@ -122,8 +122,14 @@ def run_registration_for_scale(
     image_dimension = max(image_size['width'], image_size['height'])
     # Calculate pyramid level: level N means image is 2^N times smaller
     adaptive_pyramid_level = max(0, int(np.log2(image_dimension / target_effective_size)))
-    # Clamp to reasonable range (0-4 pyramid levels typically available)
-    adaptive_pyramid_level = min(adaptive_pyramid_level, 4)
+    
+    # Get actual number of pyramid levels from first image file
+    from ashlar_evos.metadata import OMEMetadata
+    with OMEMetadata(cycle_files[0]) as meta:
+        max_pyramid_level = meta.num_levels - 1  # Levels are 0-indexed
+    
+    # Clamp to available pyramid levels
+    adaptive_pyramid_level = min(adaptive_pyramid_level, max_pyramid_level)
     
     if verbose:
         print(f"  Scaled tile size: {scaled_tile_size} (base: {base_tile_size})")
