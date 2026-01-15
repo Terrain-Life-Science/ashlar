@@ -118,7 +118,7 @@ class PerformanceMonitor:
             self.metrics.cpu_threads_used = psutil.cpu_count(logical=True) or 1
         else:
             # Fall back to os.cpu_count() when psutil is not available
-            import os
+            # os is already imported at the top of the file
             self.metrics.cpu_cores_used = os.cpu_count() or 1
             self.metrics.cpu_threads_used = os.cpu_count() or 1
         
