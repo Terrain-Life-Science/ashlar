@@ -112,7 +112,8 @@ setup(
             'generate_synthetic_test_images=ashlar.scripts.generate_synthetic_test_images:main',
             'generate_multi_scale_test_images=ashlar.scripts.generate_multi_scale_test_images:main',
             'verify_synthetic_images=ashlar.scripts.verify_synthetic_images:main',
-            'register_evos=ashlar_evos.scripts.register_evos:main'
+            'register_evos=ashlar_evos.scripts.register_evos:main',
+            'register_multi_scale=ashlar_evos.scripts.register_multi_scale:main'
         ]
     },
     classifiers=[
