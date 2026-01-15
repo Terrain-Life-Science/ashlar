@@ -357,7 +357,10 @@ class EvosRegistrationPipeline:
                 transform_matrix,
                 pixel_size=self.pixel_size,
                 order=1,
-                num_pyramid_levels=4
+                num_pyramid_levels=4,
+                use_tiled_transform=True,  # Use tiled processing for memory efficiency
+                tile_size=self.tile_size,
+                tile_overlap=self.tile_overlap
             )
             
             # Record output file size

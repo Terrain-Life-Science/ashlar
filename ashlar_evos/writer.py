@@ -127,7 +127,10 @@ def write_aligned_cycle(input_file: Path,
                        transform_matrix: np.ndarray,
                        pixel_size: float = 0.325,
                        order: int = 1,
-                       num_pyramid_levels: int = 4) -> None:
+                       num_pyramid_levels: int = 4,
+                       use_tiled_transform: bool = True,
+                       tile_size: int = 4096,
+                       tile_overlap: int = 512) -> None:
     """
     Apply transform to a cycle and write as pyramidal OME-TIFF.
     
@@ -145,21 +148,54 @@ def write_aligned_cycle(input_file: Path,
         Interpolation order for transform
     num_pyramid_levels : int
         Number of pyramid levels to generate
+    use_tiled_transform : bool
+        If True, use tiled processing to avoid loading entire image (default: True)
+        Set to False for small images or when memory is not a concern
+    tile_size : int
+        Tile size for tiled transform (default: 4096)
+    tile_overlap : int
+        Tile overlap for tiled transform (default: 512)
     """
     from .reader import PyramidalOMETiffReader
-    from .transform_apply import apply_transform_to_channel
+    from .transform_apply import apply_transform_to_channel, apply_transform_tiled
+    from .metadata import OMEMetadata
     
-    # Read and transform all channels
     with PyramidalOMETiffReader(input_file) as reader:
-        num_channels = reader.get_num_channels()
-        transformed_channels = []
+        # Get image shape
+        with OMEMetadata(input_file) as meta:
+            image_shape = meta.shape_at_level(0)  # (height, width)
         
-        for channel in range(num_channels):
-            # Apply transform to base level
-            transformed = apply_transform_to_channel(
-                reader, channel, transform_matrix, level=0, order=order
+        # Auto-disable tiled transform for small images (overhead not worth it)
+        # Threshold: 10M pixels (roughly 3162×3162 or larger)
+        image_area = image_shape[0] * image_shape[1]
+        large_image_threshold = 10_000_000  # 10M pixels
+        
+        if use_tiled_transform and image_area < large_image_threshold:
+            # Small image - tiled processing overhead not worth it
+            use_tiled_transform = False
+        
+        if use_tiled_transform:
+            # Use tiled processing for memory efficiency
+            transformed_channels = apply_transform_tiled(
+                reader,
+                transform_matrix,
+                image_shape,
+                tile_size=tile_size,
+                tile_overlap=tile_overlap,
+                level=0,
+                order=order
             )
-            transformed_channels.append(transformed)
+        else:
+            # Original method: load entire image
+            num_channels = reader.get_num_channels()
+            transformed_channels = []
+            
+            for channel in range(num_channels):
+                # Apply transform to base level
+                transformed = apply_transform_to_channel(
+                    reader, channel, transform_matrix, level=0, order=order
+                )
+                transformed_channels.append(transformed)
     
     # Write pyramidal OME-TIFF
     write_pyramidal_ometiff(
