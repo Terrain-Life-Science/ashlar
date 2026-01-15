@@ -13,6 +13,7 @@ import glob
 from typing import Dict, List, Optional
 from ashlar_evos.pipeline import EvosRegistrationPipeline
 from ashlar_evos.performance import PerformanceMonitor
+from ashlar_evos.cloud_utils import calculate_optimal_pyramid_level
 
 
 def find_cycle_files(input_dir: pathlib.Path) -> List[pathlib.Path]:
@@ -106,13 +107,32 @@ def run_registration_for_scale(
             print(f"  {f.name}")
         print()
     
+    # Use adaptive pyramid level if image_size is provided
+    # The pipeline will auto-configure, but we can also calculate it here for reporting
+    actual_coarse_level = coarse_level
+    if image_size is not None:
+        try:
+            actual_coarse_level = calculate_optimal_pyramid_level(
+                image_size['width'],
+                image_size['height'],
+                cycle_files[0]
+            )
+            if verbose:
+                print(f"  Adaptive pyramid level: {actual_coarse_level} (requested: {coarse_level})")
+                print()
+        except Exception as e:
+            if verbose:
+                print(f"  Warning: Could not calculate optimal pyramid level: {e}")
+                print()
+    
     # Create pipeline with scale metadata
+    # Note: Pipeline will auto-configure pyramid level if image_size is provided
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
         reference_idx=0,
         dapi_channel=0,
         pixel_size=pixel_size,
-        coarse_pyramid_level=coarse_level,
+        coarse_pyramid_level=coarse_level,  # Will be overridden by auto-config if image_size provided
         tile_size=tile_size,
         tile_overlap=tile_overlap,
         transform_type=transform_type,

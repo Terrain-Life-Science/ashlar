@@ -7,6 +7,8 @@ import pathlib
 import sys
 import glob
 from ashlar_evos.pipeline import EvosRegistrationPipeline
+from ashlar_evos.metadata import OMEMetadata
+from ashlar_evos.cloud_utils import suggest_cloud_parameters, estimate_memory_usage
 
 
 def main(argv=None):
@@ -119,6 +121,18 @@ Examples:
         help='Skip fine registration and use only coarse alignment with full-resolution DAPI'
     )
     
+    parser.add_argument(
+        '--cloud',
+        action='store_true',
+        help='Enable cloud optimizations (adaptive pyramid level, optimized workers)'
+    )
+    
+    parser.add_argument(
+        '--estimate-memory',
+        action='store_true',
+        help='Estimate memory usage and exit'
+    )
+    
     args = parser.parse_args(argv)
     
     # Expand glob patterns
@@ -152,6 +166,70 @@ Examples:
     if args.reference < 0 or args.reference >= len(cycle_files):
         parser.error(f"Reference index {args.reference} out of range (0-{len(cycle_files)-1})")
     
+    # Get image size from first file for cloud optimizations
+    image_size = None
+    if args.cloud or args.estimate_memory:
+        try:
+            with OMEMetadata(cycle_files[0]) as meta:
+                shape = meta.shape_at_level(0)
+                image_size = {'width': shape[1], 'height': shape[0]}
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: Could not read image size: {e}")
+    
+    # Estimate memory if requested
+    if args.estimate_memory:
+        if image_size is None:
+            parser.error("Could not determine image size for memory estimation")
+        
+        import os
+        num_workers = args.num_workers or os.cpu_count() or 1
+        memory_est = estimate_memory_usage(
+            image_size['width'],
+            image_size['height'],
+            args.tile_size,
+            num_workers
+        )
+        print("Memory Usage Estimation:")
+        print(f"  Per tile: {memory_est['per_tile_mb']:.1f} MB")
+        print(f"  Per worker: {memory_est['per_worker_mb']:.1f} MB")
+        print(f"  Parallel workers ({num_workers}): {memory_est['parallel_workers_mb']:.1f} MB")
+        print(f"  Base memory: {memory_est['base_mb']:.1f} MB")
+        print(f"  Total estimated: {memory_est['total_estimated_mb']:.1f} MB")
+        
+        if args.cloud:
+            cloud_params = suggest_cloud_parameters(
+                image_size['width'],
+                image_size['height'],
+                cycle_files[0],
+                args.num_workers
+            )
+            print("\nCloud Optimization Recommendations:")
+            print(f"  Tile size: {cloud_params['tile_size']}")
+            print(f"  Tile overlap: {cloud_params['tile_overlap']}")
+            print(f"  Estimated tiles: {cloud_params['estimated_tiles']}")
+            print(f"  Optimal workers: {cloud_params['optimal_workers']}")
+            print(f"  Coarse pyramid level: {cloud_params['coarse_pyramid_level']}")
+            print(f"  GPU recommended: {cloud_params['gpu_recommended']}")
+        
+        return 0
+    
+    # Use cloud optimizations if requested
+    coarse_level = args.coarse_level
+    if args.cloud and image_size is not None:
+        from ashlar_evos.cloud_utils import calculate_optimal_pyramid_level
+        try:
+            coarse_level = calculate_optimal_pyramid_level(
+                image_size['width'],
+                image_size['height'],
+                cycle_files[0]
+            )
+            if not args.quiet:
+                print(f"Cloud optimization: Using adaptive pyramid level {coarse_level}")
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: Could not calculate optimal pyramid level: {e}")
+    
     # Create pipeline
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
@@ -164,7 +242,8 @@ Examples:
         transform_type=args.transform_type,
         num_workers=args.num_workers,
         verbose=not args.quiet,
-        coarse_only=args.coarse_only
+        coarse_only=args.coarse_only,
+        image_size=image_size
     )
     
     # Run pipeline
