@@ -1,7 +1,7 @@
 {
   "summary": {
-    "total_time_seconds": 5.670576572418213,
-    "total_time_formatted": "5.67 seconds",
+    "total_time_seconds": 9.57504653930664,
+    "total_time_formatted": "9.58 seconds",
     "num_cycles": 3,
     "average_rmse": 3.657293291445387e-13,
     "average_mean_residual": 3.657293291445387e-13,
@@ -11,23 +11,23 @@
     "average_std_shift_y": 0.0
   },
   "performance": {
-    "start_time": "2026-01-15T14:49:21.437231",
-    "end_time": "2026-01-15T14:49:27.107807",
-    "elapsed_time_seconds": 5.670576572418213,
+    "start_time": "2026-01-15T15:09:27.514734",
+    "end_time": "2026-01-15T15:09:37.089781",
+    "elapsed_time_seconds": 9.57504653930664,
     "phases": {
-      "Coarse Alignment": 1.547959327697754,
-      "Fine Registration - Cycle 1": 0.4253807067871094,
-      "Fine Registration - Cycle 2": 0.4224250316619873,
-      "Transform Fitting - Cycle 1": 0.0043964385986328125,
-      "Transform Fitting - Cycle 2": 0.0018761157989501953,
-      "Apply Transform - Cycle 0": 1.2091989517211914,
-      "Apply Transform - Cycle 1": 1.029466152191162,
-      "Apply Transform - Cycle 2": 1.0266177654266357
+      "Coarse Alignment": 2.30287766456604,
+      "Fine Registration - Cycle 1": 0.7548832893371582,
+      "Fine Registration - Cycle 2": 0.752171516418457,
+      "Transform Fitting - Cycle 1": 0.01072382926940918,
+      "Transform Fitting - Cycle 2": 0.002706766128540039,
+      "Apply Transform - Cycle 0": 2.1683835983276367,
+      "Apply Transform - Cycle 1": 1.7753496170043945,
+      "Apply Transform - Cycle 2": 1.800485610961914
     },
     "cpu_cores_used": 8,
     "cpu_threads_used": 16,
-    "peak_memory_mb": 104.35546875,
-    "current_memory_mb": 101.22265625,
+    "peak_memory_mb": 103.44140625,
+    "current_memory_mb": 102.328125,
     "gpu_available": false,
     "gpu_cores_used": 0,
     "input_file_sizes_mb": {
@@ -36,9 +36,9 @@
       "synthetic_test_images_1x\\cycle_02.ome.tif": 27.319544792175293
     },
     "output_file_sizes_mb": {
-      "test_aligned_cloud\\aligned_cycle_00.ome.tif": 25.191941261291504,
-      "test_aligned_cloud\\aligned_cycle_01.ome.tif": 29.161282539367676,
-      "test_aligned_cloud\\aligned_cycle_02.ome.tif": 28.761590003967285
+      "test_tiled_auto\\aligned_cycle_00.ome.tif": 25.191941261291504,
+      "test_tiled_auto\\aligned_cycle_01.ome.tif": 29.161282539367676,
+      "test_tiled_auto\\aligned_cycle_02.ome.tif": 28.761590003967285
     },
     "total_input_size_mb": 79.83375453948975,
     "total_output_size_mb": 83.11481380462646
