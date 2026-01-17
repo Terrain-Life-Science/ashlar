@@ -85,6 +85,22 @@ def benchmark_registration(
         check_memory=True
     )
     
+    # Track memory usage throughout benchmark
+    memory_profile = {
+        'initial_mb': 0.0,
+        'peak_mb': 0.0,
+        'final_mb': 0.0,
+        'per_phase_mb': {}
+    }
+    
+    try:
+        import psutil
+        process = psutil.Process()
+        memory_profile['initial_mb'] = process.memory_info().rss / (1024 * 1024)
+    except ImportError:
+        logger.warning("psutil not available - memory profiling limited")
+        psutil = None
+    
     # Run pipeline with timing
     start_time = time.time()
     
@@ -103,6 +119,27 @@ def benchmark_registration(
     
     end_time = time.time()
     total_time = end_time - start_time
+    
+    # Collect final memory usage
+    if psutil:
+        try:
+            memory_profile['final_mb'] = process.memory_info().rss / (1024 * 1024)
+            memory_profile['peak_mb'] = max(
+                memory_profile['initial_mb'],
+                memory_profile['final_mb'],
+                perf_metrics.peak_memory_mb
+            )
+            
+            # Get per-phase memory from performance monitor
+            # Note: Performance monitor tracks peak, but we can estimate per-phase
+            if hasattr(pipeline.performance_monitor, 'phase_memory'):
+                memory_profile['per_phase_mb'] = pipeline.performance_monitor.phase_memory
+        except Exception as e:
+            logger.warning(f"Could not collect final memory stats: {e}")
+    else:
+        # Use performance monitor's memory tracking
+        memory_profile['peak_mb'] = perf_metrics.peak_memory_mb
+        memory_profile['final_mb'] = perf_metrics.current_memory_mb
     
     # Get performance metrics
     pipeline.performance_monitor.finalize()
@@ -126,6 +163,7 @@ def benchmark_registration(
         },
         'memory_estimation': memory_est,
         'performance': perf_metrics.to_dict(),
+        'memory_profile': memory_profile,
         'accuracy': {
             'cycles': [
                 acc.to_dict() for acc in pipeline.performance_monitor.accuracy_metrics
@@ -133,6 +171,14 @@ def benchmark_registration(
         },
         'output_files': {str(k): str(v) for k, v in output_files.items()}
     }
+    
+    # Log memory summary
+    logger.info("")
+    logger.info("Memory Profile:")
+    logger.info(f"  Initial: {memory_profile['initial_mb']:.1f} MB")
+    logger.info(f"  Peak: {memory_profile['peak_mb']:.1f} MB")
+    logger.info(f"  Final: {memory_profile['final_mb']:.1f} MB")
+    logger.info(f"  Estimated: {memory_est['total_estimated_mb']:.1f} MB")
     
     return benchmark_results
 
