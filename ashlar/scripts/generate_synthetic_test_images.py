@@ -228,7 +228,8 @@ def generate_synthetic_cycle(
     base_shape : tuple
         Base resolution shape (height, width). Supports up to 32768×32768 pixels.
     shift : tuple
-        (dx, dy) shift in pixels to apply (for testing registration)
+        (dy, dx) shift in pixels to apply (for testing registration)
+        Note: shift[0] is dy (row shift), shift[1] is dx (column shift)
     pixel_size : float
         Pixel size in micrometers
     num_pyramid_levels : int
@@ -251,7 +252,7 @@ def generate_synthetic_cycle(
     
     print(f"Generating Cycle {cycle_num}...")
     print(f"  Base shape: {h} × {w} pixels")
-    print(f"  Shift: ({shift[0]:.2f}, {shift[1]:.2f}) pixels")
+    print(f"  Shift: dy={shift[0]:.2f}, dx={shift[1]:.2f} pixels")
     
     # Create channels
     # Add progress indicators for large images
@@ -300,13 +301,16 @@ def generate_synthetic_cycle(
     
     # Apply shift to all channels (simulating cycle-to-cycle misalignment)
     if shift != (0.0, 0.0):
-        print(f"  Applying shift ({shift[0]:.2f}, {shift[1]:.2f}) pixels...")
+        print(f"  Applying shift (dy={shift[0]:.2f}, dx={shift[1]:.2f}) pixels...")
         start_time = time.time()
         try:
             shifted_stack = np.zeros_like(img_stack, dtype=np.uint16)
             for c in range(3):
                 # apply_shift returns float64, so convert back to uint16 with clipping
-                shifted_float = apply_shift(img_stack[c], shift[0], shift[1])
+                # Fix: shift tuple is (dy, dx) where shift[0]=dy (row), shift[1]=dx (col)
+                # apply_shift expects (dx, dy), so we swap: apply_shift(img, shift[1], shift[0])
+                # This ensures ndimage.shift receives (dy, dx) = (row_shift, col_shift) correctly
+                shifted_float = apply_shift(img_stack[c], shift[1], shift[0])
                 shifted_stack[c] = np.clip(shifted_float, 0, 65535).astype(np.uint16)
                 del shifted_float  # Free immediately
             gc.collect()
@@ -517,10 +521,12 @@ Note: For very large images (>8K×8K), the script uses optimized algorithms and 
     if len(args.shifts) != 6:
         parser.error("--shifts requires exactly 6 values (dx0 dy0 dx1 dy1 dx2 dy2)")
     
+    # Note: shift tuple format is (dy, dx) where shift[0]=dy (row), shift[1]=dx (col)
+    # This matches ndimage.shift's (row_shift, col_shift) format
     shifts = [
-        (args.shifts[0], args.shifts[1]),  # Cycle 0: (dx, dy)
-        (args.shifts[2], args.shifts[3]),  # Cycle 1: (dx, dy)
-        (args.shifts[4], args.shifts[5]),  # Cycle 2: (dx, dy)
+        (args.shifts[1], args.shifts[0]),  # Cycle 0: (dy, dx) from (dx0, dy0)
+        (args.shifts[3], args.shifts[2]),  # Cycle 1: (dy, dx) from (dx1, dy1)
+        (args.shifts[5], args.shifts[4]),  # Cycle 2: (dy, dx) from (dx2, dy2)
     ]
     
     base_shape = tuple(args.size)
@@ -555,7 +561,7 @@ Note: For very large images (>8K×8K), the script uses optimized algorithms and 
     print()
     print("Expected shifts (for validation):")
     for i, shift in enumerate(shifts):
-        print(f"  Cycle {i}: dx={shift[0]:.2f}, dy={shift[1]:.2f} pixels")
+        print(f"  Cycle {i}: dy={shift[0]:.2f}, dx={shift[1]:.2f} pixels")
     print()
     print("You can now test registration algorithms on these images.")
     print("The known shifts can be used to validate registration accuracy.")
