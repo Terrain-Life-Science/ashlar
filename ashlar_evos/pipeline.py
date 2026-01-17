@@ -829,7 +829,7 @@ class EvosRegistrationPipeline:
         if cycle_idx == self.reference_idx:
             # Reference cycle has identity transform
             identity = np.eye(3)
-            return {
+            result = {
                 'transform': identity,
                 'params': (0.0, 0.0, 0.0, 1.0),
                 'residuals': np.array([]),
@@ -837,6 +837,9 @@ class EvosRegistrationPipeline:
                 'inliers': np.array([]),
                 'transform_type': 'identity'
             }
+            # Store transform for consistency with other cycles
+            self.transforms[cycle_idx] = result
+            return result
         
         # If coarse_only, create simple translation transform from coarse shift
         if self.coarse_only:
