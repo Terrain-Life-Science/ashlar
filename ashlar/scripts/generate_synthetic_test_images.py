@@ -13,6 +13,7 @@ from skimage.transform import downscale_local_mean
 import pathlib
 import argparse
 import sys
+import gc
 
 
 def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
@@ -187,12 +188,18 @@ def generate_synthetic_cycle(
     # Stack channels: (channels, height, width)
     img_stack = np.stack([dapi, fluo1, fluo2], axis=0)
     
+    # Free channel arrays (memory cleanup)
+    del dapi, fluo1, fluo2
+    gc.collect()
+    
     # Apply shift to all channels (simulating cycle-to-cycle misalignment)
     if shift != (0.0, 0.0):
         shifted_stack = np.zeros_like(img_stack)
         for c in range(3):
             shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
         img_stack = shifted_stack
+        del shifted_stack  # Free memory
+        gc.collect()
     
     # Convert to 16-bit
     img_stack = (img_stack * 65535).astype(np.uint16)
@@ -269,7 +276,12 @@ def generate_synthetic_cycle(
             
             # Update current level for next iteration and free memory
             current_level = level_img
-            # Note: level_img will be freed when we overwrite current_level in next iteration
+            del level_img, level_channels  # Free memory after writing
+            gc.collect()
+    
+    # Final memory cleanup
+    del img_stack, current_level
+    gc.collect()
     
     print(f"  [OK] Complete: {output_path}")
     print()
