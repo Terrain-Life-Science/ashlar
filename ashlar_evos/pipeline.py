@@ -44,7 +44,8 @@ class EvosRegistrationPipeline:
                  verbose: bool = True,
                  coarse_only: bool = False,
                  scale_factor: Optional[float] = None,
-                 image_size: Optional[Dict[str, int]] = None):
+                 image_size: Optional[Dict[str, int]] = None,
+                 skip_incompatible_cycles: bool = False):
         """
         Initialize registration pipeline.
         
@@ -87,6 +88,7 @@ class EvosRegistrationPipeline:
         self.coarse_only = coarse_only
         self.scale_factor = scale_factor
         self.image_size = image_size
+        self.skip_incompatible_cycles = skip_incompatible_cycles
         
         # Results storage
         self.coarse_shifts = {}
@@ -209,6 +211,7 @@ class EvosRegistrationPipeline:
             
             # Compare with other cycles
             mismatches = []
+            incompatible_cycles = []
             for i, f in enumerate(self.cycle_files):
                 if i == self.reference_idx:
                     continue
@@ -219,30 +222,37 @@ class EvosRegistrationPipeline:
                     channels = meta.num_channels
                     levels = meta.num_levels
                     
+                    cycle_incompatible = False
+                    cycle_mismatches = []
+                    
                     if shape != ref_shape:
-                        mismatches.append(
-                            f"  Cycle {i} ({f.name}): shape {shape} != reference shape {ref_shape}"
-                        )
+                        cycle_incompatible = True
+                        cycle_mismatches.append(f"shape {shape} != reference shape {ref_shape}")
                     
                     if channels != ref_channels:
-                        mismatches.append(
-                            f"  Cycle {i} ({f.name}): {channels} channels != reference {ref_channels} channels"
-                        )
+                        cycle_incompatible = True
+                        cycle_mismatches.append(f"{channels} channels != reference {ref_channels} channels")
                     
                     if levels != ref_levels:
-                        mismatches.append(
-                            f"  Cycle {i} ({f.name}): {levels} pyramid levels != reference {ref_levels} levels"
-                        )
+                        cycle_incompatible = True
+                        cycle_mismatches.append(f"{levels} pyramid levels != reference {ref_levels} levels")
                     
                     # Check pyramid level availability for this cycle
                     if self.coarse_pyramid_level >= levels:
+                        cycle_incompatible = True
+                        cycle_mismatches.append(
+                            f"pyramid level {self.coarse_pyramid_level} does not exist (has {levels} levels)"
+                        )
+                    
+                    if cycle_incompatible:
+                        incompatible_cycles.append(i)
                         mismatches.append(
-                            f"  Cycle {i} ({f.name}): pyramid level {self.coarse_pyramid_level} "
-                            f"does not exist (has {levels} levels)"
+                            f"  Cycle {i} ({f.name}): " + ", ".join(cycle_mismatches)
                         )
                     
                     meta.close()
                 except Exception as e:
+                    incompatible_cycles.append(i)
                     mismatches.append(
                         f"  Cycle {i} ({f.name}): Error reading metadata - {e}"
                     )
@@ -255,9 +265,33 @@ class EvosRegistrationPipeline:
                     f"    Channels: {ref_channels}\n"
                     f"    Pyramid levels: {ref_levels}\n"
                     f"  Mismatches:\n" + "\n".join(mismatches) + "\n"
-                    f"  All cycles must have the same dimensions, channel count, and pyramid levels."
                 )
-                raise ValueError(error_msg)
+                
+                if self.skip_incompatible_cycles:
+                    # Remove incompatible cycles and warn
+                    if self.verbose:
+                        self._print("WARNING: Skipping incompatible cycles:")
+                        for i in incompatible_cycles:
+                            self._print(f"  - Cycle {i}: {self.cycle_files[i].name}")
+                    
+                    # Remove incompatible cycles from the list
+                    self.cycle_files = [
+                        f for i, f in enumerate(self.cycle_files)
+                        if i not in incompatible_cycles
+                    ]
+                    
+                    if len(self.cycle_files) < 2:
+                        raise ValueError(
+                            f"After removing incompatible cycles, only {len(self.cycle_files)} cycle(s) remain. "
+                            f"Need at least 2 cycles (reference + 1 target) for registration."
+                        )
+                    
+                    if self.verbose:
+                        self._print(f"Continuing with {len(self.cycle_files)} compatible cycle(s)")
+                else:
+                    error_msg += "  All cycles must have the same dimensions, channel count, and pyramid levels.\n"
+                    error_msg += "  Use skip_incompatible_cycles=True to skip incompatible cycles with a warning."
+                    raise ValueError(error_msg)
             
         finally:
             reference_meta.close()
