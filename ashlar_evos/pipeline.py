@@ -45,7 +45,9 @@ class EvosRegistrationPipeline:
                  coarse_only: bool = False,
                  scale_factor: Optional[float] = None,
                  image_size: Optional[Dict[str, int]] = None,
-                 skip_incompatible_cycles: bool = False):
+                 skip_incompatible_cycles: bool = False,
+                 max_shift_threshold: float = 1000.0,
+                 check_memory: bool = True):
         """
         Initialize registration pipeline.
         
@@ -89,6 +91,8 @@ class EvosRegistrationPipeline:
         self.scale_factor = scale_factor
         self.image_size = image_size
         self.skip_incompatible_cycles = skip_incompatible_cycles
+        self.max_shift_threshold = max_shift_threshold
+        self.check_memory = check_memory
         
         # Results storage
         self.coarse_shifts = {}
@@ -101,6 +105,10 @@ class EvosRegistrationPipeline:
         
         # Validate input files
         self._validate_input_files()
+        
+        # Check memory usage if requested
+        if self.check_memory and self.image_size:
+            self._check_memory_usage()
         
         # Auto-configure pyramid level if image_size is provided
         if image_size is not None and image_size.get('width') and image_size.get('height'):
@@ -303,6 +311,114 @@ class EvosRegistrationPipeline:
             self._print(f"  Channels: {ref_channels}")
             self._print(f"  Pyramid levels: {ref_levels}")
     
+    def _check_memory_usage(self):
+        """
+        Check estimated memory usage and warn if excessive.
+        
+        Also adjusts worker count if memory pressure is detected.
+        """
+        if not self.image_size or not self.image_size.get('width') or not self.image_size.get('height'):
+            return
+        
+        from .cloud_utils import estimate_memory_usage
+        from .metadata import OMEMetadata
+        
+        # Get number of channels
+        try:
+            with OMEMetadata(self.cycle_files[0]) as meta:
+                num_channels = meta.num_channels
+        except Exception:
+            num_channels = 3  # Default
+        
+        # Estimate memory usage
+        memory_est = estimate_memory_usage(
+            image_width=self.image_size['width'],
+            image_height=self.image_size['height'],
+            tile_size=self.tile_size,
+            num_workers=self.num_workers or 1,
+            num_channels=num_channels
+        )
+        
+        # Check available memory if psutil is available
+        try:
+            import psutil
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            total_memory_mb = psutil.virtual_memory().total / (1024 * 1024)
+            
+            estimated_mb = memory_est['total_estimated_mb']
+            
+            if estimated_mb > available_memory_mb * 0.9:
+                # Memory pressure detected - reduce workers
+                if self.num_workers and self.num_workers > 1:
+                    original_workers = self.num_workers
+                    # Reduce workers to use at most 70% of available memory
+                    target_memory = available_memory_mb * 0.7
+                    base_memory = memory_est['base_mb']
+                    available_for_workers = target_memory - base_memory
+                    per_worker = memory_est['per_worker_mb']
+                    
+                    if per_worker > 0:
+                        max_workers = max(1, int(available_for_workers / per_worker))
+                        if max_workers < self.num_workers:
+                            self.num_workers = max_workers
+                            if self.verbose:
+                                self._print(
+                                    f"WARNING: Memory pressure detected. "
+                                    f"Reduced workers from {original_workers} to {self.num_workers} "
+                                    f"to fit within available memory ({available_memory_mb:.0f} MB available, "
+                                    f"{estimated_mb:.0f} MB estimated)."
+                                )
+                else:
+                    if self.verbose:
+                        self._print(
+                            f"WARNING: Estimated memory usage ({estimated_mb:.0f} MB) exceeds "
+                            f"90% of available memory ({available_memory_mb:.0f} MB). "
+                            f"Consider reducing tile_size or num_workers."
+                        )
+        except ImportError:
+            # psutil not available, just warn based on estimate
+            if self.verbose:
+                self._print(
+                    f"Estimated memory usage: {memory_est['total_estimated_mb']:.0f} MB. "
+                    f"Install psutil for automatic memory checking."
+                )
+    
+    def _validate_shift(self, shift: np.ndarray, cycle_idx: int) -> bool:
+        """
+        Validate shift magnitude and warn if extreme.
+        
+        Parameters
+        ----------
+        shift : np.ndarray
+            Shift vector (dy, dx)
+        cycle_idx : int
+            Cycle index for error messages
+            
+        Returns
+        -------
+        bool
+            True if shift is within acceptable range, False otherwise
+        """
+        import warnings
+        
+        magnitude = np.sqrt(shift[0] ** 2 + shift[1] ** 2)
+        
+        if magnitude > self.max_shift_threshold:
+            warnings.warn(
+                f"Extreme shift detected for cycle {cycle_idx}: "
+                f"magnitude {magnitude:.2f} pixels (threshold: {self.max_shift_threshold})\n"
+                f"  Shift: ({shift[0]:.2f}, {shift[1]:.2f})\n"
+                f"  This may indicate:\n"
+                f"  - Severe misalignment between cycles\n"
+                f"  - Incorrect reference cycle selection\n"
+                f"  - Image quality issues\n"
+                f"  - Coordinate system mismatch",
+                UserWarning
+            )
+            return False
+        
+        return True
+    
     def run_coarse_alignment(self) -> Dict[int, Tuple[np.ndarray, float]]:
         """
         Run coarse alignment phase.
@@ -337,6 +453,8 @@ class EvosRegistrationPipeline:
             self._print(f"  Reference cycle: {self.reference_idx}")
             for i, (shift, error) in self.coarse_shifts.items():
                 if i != self.reference_idx:
+                    # Validate shift magnitude
+                    self._validate_shift(shift, i)
                     self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
         
         return self.coarse_shifts
@@ -381,11 +499,17 @@ class EvosRegistrationPipeline:
             target_reader = PyramidalOMETiffReader(self.cycle_files[cycle_idx])
             
             try:
+                # Validate coarse shift before fine registration
+                if not self._validate_shift(coarse_shift, cycle_idx):
+                    if self.verbose:
+                        self._print(f"  WARNING: Proceeding with fine registration despite extreme coarse shift")
+                
                 results = register_all_tiles(
                     ref_reader, target_reader, grid,
                     dapi_channel=self.dapi_channel,
                     coarse_shift=coarse_shift,
-                    num_workers=self.num_workers
+                    num_workers=self.num_workers,
+                    skip_failed_tiles=True  # Skip failed tiles gracefully
                 )
                 self.fine_shifts[cycle_idx] = results
                 self._print(f"  Registered {len(results)} tiles")
