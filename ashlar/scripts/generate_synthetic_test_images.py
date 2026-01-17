@@ -17,7 +17,12 @@ import sys
 def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
     """Create synthetic cell-like structures."""
     h, w = shape
+    # Cache ogrid to avoid repeated creation
+    y, x = np.ogrid[:h, :w]
+    
+    # Accumulate all cells first (optimization: batch processing)
     img = np.zeros(shape, dtype=np.float32)
+    radii = []
     
     np.random.seed(42)  # For reproducibility
     for _ in range(num_cells):
@@ -27,18 +32,19 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
         
         # Random cell size
         radius = np.random.randint(*cell_size_range)
+        radii.append(radius)
         
-        # Create circular cell
-        y, x = np.ogrid[:h, :w]
+        # Create circular cell mask
         mask = (x - cx)**2 + (y - cy)**2 <= radius**2
         
         # Add intensity gradient (brighter in center)
         intensity = np.random.uniform(0.3, 1.0)
-        cell_img = np.zeros_like(img)
-        cell_img[mask] = intensity
-        cell_img = filters.gaussian(cell_img, sigma=radius/4)
-        
-        img = np.maximum(img, cell_img)
+        img[mask] = np.maximum(img[mask], intensity)
+    
+    # Apply single Gaussian filter to accumulated cells (optimization: 1 filter instead of num_cells)
+    # Use average sigma for efficiency while maintaining visual quality
+    avg_radius = np.mean(radii) if radii else (cell_size_range[0] + cell_size_range[1]) / 2
+    img = filters.gaussian(img, sigma=avg_radius/4)
     
     return img
 
