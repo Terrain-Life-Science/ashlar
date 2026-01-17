@@ -97,8 +97,22 @@ def optimize_worker_count(
         num_workers = min(num_workers, num_tiles)
     
     # For cloud deployments, leave cores free for I/O operations
-    if is_cloud and num_workers > 8:
-        num_workers = max(1, num_workers - 2)
+    if is_cloud:
+        # Get total available cores for better decision making
+        total_cores = os.cpu_count() or num_workers
+        
+        # Leave 1-2 cores free based on total cores available
+        # For small instances (2-3 cores), leave 1 core free
+        # For larger instances (4+ cores), leave 2 cores free
+        if total_cores >= 4:
+            cores_to_leave = 2
+        elif total_cores >= 2:
+            cores_to_leave = 1
+        else:
+            cores_to_leave = 0  # Single core instance, use all available
+        
+        # Reduce workers to leave cores free, but ensure at least 1 worker
+        num_workers = max(1, num_workers - cores_to_leave)
     
     return num_workers
 
