@@ -9,6 +9,7 @@ import glob
 from ashlar_evos.pipeline import EvosRegistrationPipeline
 from ashlar_evos.metadata import OMEMetadata
 from ashlar_evos.cloud_utils import suggest_cloud_parameters, estimate_memory_usage
+from ashlar_evos.logging_config import setup_logging, get_logger
 
 
 def main(argv=None):
@@ -135,6 +136,15 @@ Examples:
     
     args = parser.parse_args(argv)
     
+    # Set up logging
+    log_file = args.output_dir / 'registration.log' if args.output_dir else None
+    logger = setup_logging(
+        log_level='DEBUG' if not args.quiet else 'WARNING',
+        log_file=log_file,
+        verbose=not args.quiet
+    )
+    logger = get_logger('ashlar_evos.scripts.register_evos')
+    
     # Expand glob patterns
     expanded_cycles = []
     for pattern in args.cycles:
@@ -174,8 +184,7 @@ Examples:
                 shape = meta.shape_at_level(0)
                 image_size = {'width': shape[1], 'height': shape[0]}
         except Exception as e:
-            if not args.quiet:
-                print(f"Warning: Could not read image size: {e}")
+            logger.warning(f"Could not read image size: {e}")
     
     # Estimate memory if requested
     if args.estimate_memory:
@@ -190,12 +199,12 @@ Examples:
             args.tile_size,
             num_workers
         )
-        print("Memory Usage Estimation:")
-        print(f"  Per tile: {memory_est['per_tile_mb']:.1f} MB")
-        print(f"  Per worker: {memory_est['per_worker_mb']:.1f} MB")
-        print(f"  Parallel workers ({num_workers}): {memory_est['parallel_workers_mb']:.1f} MB")
-        print(f"  Base memory: {memory_est['base_mb']:.1f} MB")
-        print(f"  Total estimated: {memory_est['total_estimated_mb']:.1f} MB")
+        logger.info("Memory Usage Estimation:")
+        logger.info(f"  Per tile: {memory_est['per_tile_mb']:.1f} MB")
+        logger.info(f"  Per worker: {memory_est['per_worker_mb']:.1f} MB")
+        logger.info(f"  Parallel workers ({num_workers}): {memory_est['parallel_workers_mb']:.1f} MB")
+        logger.info(f"  Base memory: {memory_est['base_mb']:.1f} MB")
+        logger.info(f"  Total estimated: {memory_est['total_estimated_mb']:.1f} MB")
         
         if args.cloud:
             cloud_params = suggest_cloud_parameters(
@@ -204,13 +213,13 @@ Examples:
                 cycle_files[0],
                 args.num_workers
             )
-            print("\nCloud Optimization Recommendations:")
-            print(f"  Tile size: {cloud_params['tile_size']}")
-            print(f"  Tile overlap: {cloud_params['tile_overlap']}")
-            print(f"  Estimated tiles: {cloud_params['estimated_tiles']}")
-            print(f"  Optimal workers: {cloud_params['optimal_workers']}")
-            print(f"  Coarse pyramid level: {cloud_params['coarse_pyramid_level']}")
-            print(f"  GPU recommended: {cloud_params['gpu_recommended']}")
+            logger.info("\nCloud Optimization Recommendations:")
+            logger.info(f"  Tile size: {cloud_params['tile_size']}")
+            logger.info(f"  Tile overlap: {cloud_params['tile_overlap']}")
+            logger.info(f"  Estimated tiles: {cloud_params['estimated_tiles']}")
+            logger.info(f"  Optimal workers: {cloud_params['optimal_workers']}")
+            logger.info(f"  Coarse pyramid level: {cloud_params['coarse_pyramid_level']}")
+            logger.info(f"  GPU recommended: {cloud_params['gpu_recommended']}")
         
         return 0
     
@@ -224,11 +233,9 @@ Examples:
                 image_size['height'],
                 cycle_files[0]
             )
-            if not args.quiet:
-                print(f"Cloud optimization: Using adaptive pyramid level {coarse_level}")
+            logger.info(f"Cloud optimization: Using adaptive pyramid level {coarse_level}")
         except Exception as e:
-            if not args.quiet:
-                print(f"Warning: Could not calculate optimal pyramid level: {e}")
+            logger.warning(f"Could not calculate optimal pyramid level: {e}")
     
     # Create pipeline
     pipeline = EvosRegistrationPipeline(
@@ -253,18 +260,14 @@ Examples:
             report_path=args.report
         )
         
-        if not args.quiet:
-            print()
-            print("Output files:")
-            for i, output_file in output_files.items():
-                print(f"  Cycle {i}: {output_file}")
+        logger.info("")
+        logger.info("Output files:")
+        for i, output_file in output_files.items():
+            logger.info(f"  Cycle {i}: {output_file}")
         
         return 0
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if not args.quiet:
-            import traceback
-            traceback.print_exc()
+        logger.error(f"Registration failed: {e}", exc_info=True)
         return 1
 
 
