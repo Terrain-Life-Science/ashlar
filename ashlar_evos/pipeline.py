@@ -97,10 +97,8 @@ class EvosRegistrationPipeline:
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor()
         
-        # Validate files
-        for i, f in enumerate(self.cycle_files):
-            if not f.exists():
-                raise FileNotFoundError(f"Cycle file not found: {f}")
+        # Validate input files
+        self._validate_input_files()
         
         # Auto-configure pyramid level if image_size is provided
         if image_size is not None and image_size.get('width') and image_size.get('height'):
@@ -139,6 +137,137 @@ class EvosRegistrationPipeline:
         """Print message if verbose."""
         if self.verbose:
             print(message)
+    
+    def _validate_input_files(self):
+        """
+        Validate input files before processing.
+        
+        Checks:
+        - File existence and readability
+        - All cycles have same dimensions
+        - All cycles have same channel counts
+        - Pyramid level availability
+        """
+        if not self.cycle_files:
+            raise ValueError("No cycle files provided")
+        
+        if self.reference_idx < 0 or self.reference_idx >= len(self.cycle_files):
+            raise ValueError(
+                f"Reference index {self.reference_idx} is out of range "
+                f"(must be 0-{len(self.cycle_files)-1})"
+            )
+        
+        # Check file existence and readability
+        for i, f in enumerate(self.cycle_files):
+            if not f.exists():
+                raise FileNotFoundError(
+                    f"Cycle {i} file not found: {f}\n"
+                    f"  Please check the file path and ensure the file exists."
+                )
+            
+            if not f.is_file():
+                raise ValueError(
+                    f"Cycle {i} path is not a file: {f}\n"
+                    f"  Expected a file path, got: {type(f)}"
+                )
+            
+            # Try to open and read metadata to check readability
+            try:
+                with OMEMetadata(f) as meta:
+                    # Just check that we can read metadata
+                    _ = meta.num_channels
+                    _ = meta.num_levels
+            except Exception as e:
+                raise IOError(
+                    f"Cycle {i} file is not readable or not a valid OME-TIFF: {f}\n"
+                    f"  Error: {e}\n"
+                    f"  Please ensure the file is a valid pyramidal OME-TIFF file."
+                ) from e
+        
+        # Validate consistency across cycles
+        reference_meta = OMEMetadata(self.cycle_files[self.reference_idx])
+        try:
+            ref_shape = reference_meta.shape_at_level(0)
+            ref_channels = reference_meta.num_channels
+            ref_levels = reference_meta.num_levels
+            
+            # Check that requested pyramid level exists
+            if self.coarse_pyramid_level >= ref_levels:
+                raise ValueError(
+                    f"Requested pyramid level {self.coarse_pyramid_level} does not exist.\n"
+                    f"  Reference cycle has {ref_levels} pyramid levels (0-{ref_levels-1}).\n"
+                    f"  Please use a level between 0 and {ref_levels-1}."
+                )
+            
+            # Check that DAPI channel exists
+            if self.dapi_channel >= ref_channels:
+                raise ValueError(
+                    f"Requested DAPI channel {self.dapi_channel} does not exist.\n"
+                    f"  Reference cycle has {ref_channels} channels (0-{ref_channels-1}).\n"
+                    f"  Please use a channel between 0 and {ref_channels-1}."
+                )
+            
+            # Compare with other cycles
+            mismatches = []
+            for i, f in enumerate(self.cycle_files):
+                if i == self.reference_idx:
+                    continue
+                
+                try:
+                    meta = OMEMetadata(f)
+                    shape = meta.shape_at_level(0)
+                    channels = meta.num_channels
+                    levels = meta.num_levels
+                    
+                    if shape != ref_shape:
+                        mismatches.append(
+                            f"  Cycle {i} ({f.name}): shape {shape} != reference shape {ref_shape}"
+                        )
+                    
+                    if channels != ref_channels:
+                        mismatches.append(
+                            f"  Cycle {i} ({f.name}): {channels} channels != reference {ref_channels} channels"
+                        )
+                    
+                    if levels != ref_levels:
+                        mismatches.append(
+                            f"  Cycle {i} ({f.name}): {levels} pyramid levels != reference {ref_levels} levels"
+                        )
+                    
+                    # Check pyramid level availability for this cycle
+                    if self.coarse_pyramid_level >= levels:
+                        mismatches.append(
+                            f"  Cycle {i} ({f.name}): pyramid level {self.coarse_pyramid_level} "
+                            f"does not exist (has {levels} levels)"
+                        )
+                    
+                    meta.close()
+                except Exception as e:
+                    mismatches.append(
+                        f"  Cycle {i} ({f.name}): Error reading metadata - {e}"
+                    )
+            
+            if mismatches:
+                error_msg = (
+                    f"Inconsistent cycle files detected:\n"
+                    f"  Reference cycle ({self.cycle_files[self.reference_idx].name}):\n"
+                    f"    Shape: {ref_shape}\n"
+                    f"    Channels: {ref_channels}\n"
+                    f"    Pyramid levels: {ref_levels}\n"
+                    f"  Mismatches:\n" + "\n".join(mismatches) + "\n"
+                    f"  All cycles must have the same dimensions, channel count, and pyramid levels."
+                )
+                raise ValueError(error_msg)
+            
+        finally:
+            reference_meta.close()
+        
+        if self.verbose:
+            self._print(f"Input validation passed: {len(self.cycle_files)} cycles")
+            self._print(f"  Reference: {self.cycle_files[self.reference_idx].name}")
+            self._print(f"  Image shape: {ref_shape}")
+            self._print(f"  Channels: {ref_channels}")
+            self._print(f"  Pyramid levels: {ref_levels}")
     
     def run_coarse_alignment(self) -> Dict[int, Tuple[np.ndarray, float]]:
         """
