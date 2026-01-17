@@ -68,12 +68,18 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
         # Determine which edge we're closer to and adjust minimally
         if original_y_adj + tile_info.height > h_max:
             # Original position was at/near bottom edge, move up just enough to get minimum size
-            # But don't move more than necessary - stay as close to original position as possible
-            y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
+            # Move up to h_max - min_tile_h, but don't move more than necessary
+            y_adj = max(0, h_max - min_tile_h)
         else:
-            # Original position was at/near top edge, move down just enough to get minimum size
-            # But don't move more than necessary - stay as close to original position as possible
-            y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
+            # Original position was at/near top edge or negative, move down (increase y_adj)
+            # But ensure we can extract at least min_tile_h pixels
+            # Position at 0 to maximize available space, but try to preserve original if possible
+            if original_y_adj < 0:
+                # Was negative, position at 0
+                y_adj = 0
+            else:
+                # Was positive but too small, ensure we can get min_tile_h
+                y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
         tile_h = min(tile_info.height, h_max - y_adj)
     
     if tile_w < min_tile_w:
@@ -81,12 +87,18 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
         # Determine which edge we're closer to and adjust minimally
         if original_x_adj + tile_info.width > w_max:
             # Original position was at/near right edge, move left just enough to get minimum size
-            # But don't move more than necessary - stay as close to original position as possible
-            x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
+            # Move left to w_max - min_tile_w, but don't move more than necessary
+            x_adj = max(0, w_max - min_tile_w)
         else:
-            # Original position was at/near left edge, move right just enough to get minimum size
-            # But don't move more than necessary - stay as close to original position as possible
-            x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
+            # Original position was at/near left edge or negative, move right (increase x_adj)
+            # But ensure we can extract at least min_tile_w pixels
+            # Position at 0 to maximize available space, but try to preserve original if possible
+            if original_x_adj < 0:
+                # Was negative, position at 0
+                x_adj = 0
+            else:
+                # Was positive but too small, ensure we can get min_tile_w
+                x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
         tile_w = min(tile_info.width, w_max - x_adj)
     
     # Extract tile
