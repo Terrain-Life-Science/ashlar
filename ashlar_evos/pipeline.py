@@ -31,6 +31,8 @@ from .cloud_utils import (
 )
 from .logging_config import setup_logging, get_logger
 import logging
+import time
+from functools import wraps
 
 
 @dataclass
@@ -109,6 +111,53 @@ class CheckpointState:
                             new_list.append(item)
                     data['fine_shifts'][k] = new_list
         return cls(**data)
+
+
+def retry_with_backoff(max_attempts: int = 3, initial_delay: float = 1.0, 
+                       backoff_factor: float = 2.0, exceptions: tuple = (Exception,)):
+    """
+    Decorator for retrying functions with exponential backoff.
+    
+    Parameters
+    ----------
+    max_attempts : int
+        Maximum number of retry attempts (default: 3)
+    initial_delay : float
+        Initial delay in seconds before first retry (default: 1.0)
+    backoff_factor : float
+        Factor to multiply delay by after each retry (default: 2.0)
+    exceptions : tuple
+        Tuple of exception types to catch and retry (default: (Exception,))
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_exception = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        logger = get_logger('ashlar_evos.pipeline')
+                        logger.warning(
+                            f"Attempt {attempt + 1}/{max_attempts} failed for {func.__name__}: {e}\n"
+                            f"  Retrying in {delay:.1f} seconds..."
+                        )
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        logger = get_logger('ashlar_evos.pipeline')
+                        logger.error(
+                            f"All {max_attempts} attempts failed for {func.__name__}: {e}"
+                        )
+            
+            # All attempts failed
+            raise last_exception
+        return wrapper
+    return decorator
 
 
 class EvosRegistrationPipeline:
@@ -280,12 +329,15 @@ class EvosRegistrationPipeline:
                     f"  Expected a file path, got: {type(f)}"
                 )
             
-            # Try to open and read metadata to check readability
-            try:
-                with OMEMetadata(f) as meta:
-                    # Just check that we can read metadata
+            # Try to open and read metadata to check readability (with retry)
+            @retry_with_backoff(max_attempts=3, initial_delay=0.5, exceptions=(IOError, OSError))
+            def check_file_readable(filepath):
+                with OMEMetadata(filepath) as meta:
                     _ = meta.num_channels
                     _ = meta.num_levels
+            
+            try:
+                check_file_readable(f)
             except Exception as e:
                 raise IOError(
                     f"Cycle {i} file is not readable or not a valid OME-TIFF: {f}\n"
@@ -293,8 +345,12 @@ class EvosRegistrationPipeline:
                     f"  Please ensure the file is a valid pyramidal OME-TIFF file."
                 ) from e
         
-        # Validate consistency across cycles
-        reference_meta = OMEMetadata(self.cycle_files[self.reference_idx])
+        # Validate consistency across cycles (with retry for I/O)
+        @retry_with_backoff(max_attempts=3, initial_delay=0.5, exceptions=(IOError, OSError))
+        def read_reference_metadata(filepath):
+            return OMEMetadata(filepath)
+        
+        reference_meta = read_reference_metadata(self.cycle_files[self.reference_idx])
         try:
             ref_shape = reference_meta.shape_at_level(0)
             ref_channels = reference_meta.num_channels
@@ -323,8 +379,12 @@ class EvosRegistrationPipeline:
                 if i == self.reference_idx:
                     continue
                 
+                @retry_with_backoff(max_attempts=3, initial_delay=0.5, exceptions=(IOError, OSError))
+                def read_cycle_metadata(filepath):
+                    return OMEMetadata(filepath)
+                
                 try:
-                    meta = OMEMetadata(f)
+                    meta = read_cycle_metadata(f)
                     shape = meta.shape_at_level(0)
                     channels = meta.num_channels
                     levels = meta.num_levels
