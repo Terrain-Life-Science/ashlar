@@ -79,7 +79,13 @@ def create_dapi_channel(shape):
         img[mask] = np.maximum(img[mask], intensity)
     
     # Add some background noise
-    img += np.random.normal(0, 0.05, shape).astype(np.float32)
+    # For very large images, reduce noise to save memory and time
+    noise_std = 0.05
+    if h > 16384 or w > 16384:  # Very large images (16K+)
+        noise_std = 0.03  # Reduce noise for very large images
+    elif h > 8192 or w > 8192:  # Large images (8K+)
+        noise_std = 0.04  # Slightly reduce noise for large images
+    img += np.random.normal(0, noise_std, shape).astype(np.float32)
     img = np.clip(img, 0, 1)
     
     # Smooth slightly
@@ -147,7 +153,13 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
         img = filters.gaussian(img, sigma=sigma, truncate=3.0)  # Limit kernel size
     
     # Add background
-    img += np.random.normal(0, 0.03, shape).astype(np.float32)
+    # For very large images, reduce noise to save memory and time
+    noise_std = 0.03
+    if h > 16384 or w > 16384:  # Very large images (16K+)
+        noise_std = 0.02  # Reduce noise for very large images
+    elif h > 8192 or w > 8192:  # Large images (8K+)
+        noise_std = 0.025  # Slightly reduce noise for large images
+    img += np.random.normal(0, noise_std, shape).astype(np.float32)
     img = np.clip(img, 0, 1)
     
     return img
