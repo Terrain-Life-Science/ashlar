@@ -72,8 +72,12 @@ def _apply_transform_torch(image: np.ndarray, source_y: np.ndarray,
     grid_x = 2.0 * source_x / (w - 1) - 1.0
     grid_y = 2.0 * source_y / (h - 1) - 1.0
     
+    # Convert to torch tensors before stacking
+    grid_x_tensor = torch.from_numpy(grid_x).float()
+    grid_y_tensor = torch.from_numpy(grid_y).float()
+    
     # Create grid tensor: shape (1, H, W, 2) where last dim is (x, y)
-    grid = torch.stack([grid_x, grid_y], dim=-1)
+    grid = torch.stack([grid_x_tensor, grid_y_tensor], dim=-1)
     grid = grid.unsqueeze(0).to(device)
     
     # Map interpolation order
