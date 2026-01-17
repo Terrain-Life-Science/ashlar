@@ -56,6 +56,9 @@ def create_dapi_channel(shape):
     h, w = shape
     img = np.zeros(shape, dtype=np.float32)
     
+    # Cache ogrid to avoid repeated creation in loop
+    y, x = np.ogrid[:h, :w]
+    
     # Create many small circular nuclei
     np.random.seed(123)
     num_nuclei = 200
@@ -64,7 +67,6 @@ def create_dapi_channel(shape):
         cx = np.random.randint(10, w - 10)
         radius = np.random.randint(3, 12)
         
-        y, x = np.ogrid[:h, :w]
         mask = (x - cx)**2 + (y - cy)**2 <= radius**2
         
         intensity = np.random.uniform(0.4, 1.0)
@@ -90,13 +92,14 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
     elif pattern_type == 'membrane':
         # Thin membrane-like structures
         img = np.zeros(shape, dtype=np.float32)
+        # Cache ogrid to avoid repeated creation in loop
+        y, x = np.ogrid[:h, :w]
         np.random.seed(456)
         for _ in range(40):
             cy = np.random.randint(50, h - 50)
             cx = np.random.randint(50, w - 50)
             radius = np.random.randint(40, 120)
             
-            y, x = np.ogrid[:h, :w]
             dist = np.sqrt((x - cx)**2 + (y - cy)**2)
             # Create ring pattern
             ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
@@ -106,13 +109,14 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
     else:
         # Random punctate structures
         img = np.zeros(shape, dtype=np.float32)
+        # Cache ogrid to avoid repeated creation in loop
+        y, x = np.ogrid[:h, :w]
         np.random.seed(789)
         for _ in range(100):
             cy = np.random.randint(5, h - 5)
             cx = np.random.randint(5, w - 5)
             radius = np.random.randint(2, 8)
             
-            y, x = np.ogrid[:h, :w]
             mask = (x - cx)**2 + (y - cy)**2 <= radius**2
             img[mask] = np.random.uniform(0.6, 1.0)
         
