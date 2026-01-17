@@ -26,6 +26,7 @@ from .cloud_utils import (
     optimize_worker_count,
     detect_large_image
 )
+from .logging_config import setup_logging, get_logger
 
 
 class EvosRegistrationPipeline:
@@ -103,6 +104,13 @@ class EvosRegistrationPipeline:
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor()
         
+        # Set up logging
+        self.logger = get_logger('ashlar_evos.pipeline')
+        if not self.logger.handlers:
+            # Only set up if not already configured
+            setup_logging(verbose=self.verbose)
+            self.logger = get_logger('ashlar_evos.pipeline')
+        
         # Validate input files
         self._validate_input_files()
         
@@ -123,8 +131,7 @@ class EvosRegistrationPipeline:
                                f"(based on image size {image_size['width']}×{image_size['height']})")
                 self.coarse_pyramid_level = optimal_level
             except Exception as e:
-                if self.verbose:
-                    self._print(f"Warning: Could not auto-configure pyramid level: {e}")
+                self._print(f"Could not auto-configure pyramid level: {e}", level='WARNING')
         
         # Detect large images and provide recommendations
         if image_size is not None and image_size.get('width') and image_size.get('height'):
@@ -134,19 +141,24 @@ class EvosRegistrationPipeline:
                 self.tile_size,
                 self.tile_overlap
             )
-            if is_large and self.verbose:
+            if is_large:
                 self._print(f"Large image detected: {recommendations['image_area_pixels']:,} pixels")
                 if recommendations['warnings']:
                     for warning in recommendations['warnings']:
-                        self._print(f"  Warning: {warning}")
+                        self._print(f"  Warning: {warning}", level='WARNING')
                 if recommendations['recommendations']:
                     for rec in recommendations['recommendations']:
                         self._print(f"  Recommendation: {rec}")
     
-    def _print(self, message: str):
-        """Print message if verbose."""
-        if self.verbose:
-            print(message)
+    def _print(self, message: str, level: str = 'INFO'):
+        """
+        Log message using structured logging.
+        
+        Maintains backward compatibility with verbose flag.
+        """
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        if self.verbose or level in ('WARNING', 'ERROR', 'CRITICAL'):
+            self.logger.log(log_level, message)
     
     def _validate_input_files(self):
         """
@@ -277,10 +289,9 @@ class EvosRegistrationPipeline:
                 
                 if self.skip_incompatible_cycles:
                     # Remove incompatible cycles and warn
-                    if self.verbose:
-                        self._print("WARNING: Skipping incompatible cycles:")
-                        for i in incompatible_cycles:
-                            self._print(f"  - Cycle {i}: {self.cycle_files[i].name}")
+                    self._print("Skipping incompatible cycles:", level='WARNING')
+                    for i in incompatible_cycles:
+                        self._print(f"  - Cycle {i}: {self.cycle_files[i].name}", level='WARNING')
                     
                     # Remove incompatible cycles from the list
                     self.cycle_files = [
@@ -361,27 +372,27 @@ class EvosRegistrationPipeline:
                         max_workers = max(1, int(available_for_workers / per_worker))
                         if max_workers < self.num_workers:
                             self.num_workers = max_workers
-                            if self.verbose:
-                                self._print(
-                                    f"WARNING: Memory pressure detected. "
-                                    f"Reduced workers from {original_workers} to {self.num_workers} "
-                                    f"to fit within available memory ({available_memory_mb:.0f} MB available, "
-                                    f"{estimated_mb:.0f} MB estimated)."
-                                )
+                            self._print(
+                                f"Memory pressure detected. "
+                                f"Reduced workers from {original_workers} to {self.num_workers} "
+                                f"to fit within available memory ({available_memory_mb:.0f} MB available, "
+                                f"{estimated_mb:.0f} MB estimated).",
+                                level='WARNING'
+                            )
                 else:
-                    if self.verbose:
-                        self._print(
-                            f"WARNING: Estimated memory usage ({estimated_mb:.0f} MB) exceeds "
-                            f"90% of available memory ({available_memory_mb:.0f} MB). "
-                            f"Consider reducing tile_size or num_workers."
-                        )
+                    self._print(
+                        f"Estimated memory usage ({estimated_mb:.0f} MB) exceeds "
+                        f"90% of available memory ({available_memory_mb:.0f} MB). "
+                        f"Consider reducing tile_size or num_workers.",
+                        level='WARNING'
+                    )
         except ImportError:
-            # psutil not available, just warn based on estimate
-            if self.verbose:
-                self._print(
-                    f"Estimated memory usage: {memory_est['total_estimated_mb']:.0f} MB. "
-                    f"Install psutil for automatic memory checking."
-                )
+            # psutil not available, just log estimate
+            self._print(
+                f"Estimated memory usage: {memory_est['total_estimated_mb']:.0f} MB. "
+                f"Install psutil for automatic memory checking.",
+                level='DEBUG'
+            )
     
     def _validate_shift(self, shift: np.ndarray, cycle_idx: int) -> bool:
         """
@@ -501,8 +512,7 @@ class EvosRegistrationPipeline:
             try:
                 # Validate coarse shift before fine registration
                 if not self._validate_shift(coarse_shift, cycle_idx):
-                    if self.verbose:
-                        self._print(f"  WARNING: Proceeding with fine registration despite extreme coarse shift")
+                    self._print(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
                 
                 results = register_all_tiles(
                     ref_reader, target_reader, grid,
@@ -641,8 +651,8 @@ class EvosRegistrationPipeline:
             # Check if GPU is available
             from .transform_apply import is_gpu_available
             use_gpu = is_gpu_available() and self.performance_monitor.metrics.gpu_available
-            if use_gpu and self.verbose:
-                self._print(f"  Using GPU acceleration for transform")
+            if use_gpu:
+                self._print(f"Using GPU acceleration for transform", level='INFO')
             
             write_aligned_cycle(
                 self.cycle_files[cycle_idx],
