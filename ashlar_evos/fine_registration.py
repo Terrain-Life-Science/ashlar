@@ -240,6 +240,29 @@ def _register_one_tile_worker(args):
         target_reader_worker.close()
 
 
+def _safe_worker_wrapper(args):
+    """
+    Wrapper that catches exceptions in worker function.
+    
+    This is a module-level function to allow pickling for multiprocessing.
+    
+    Parameters
+    ----------
+    args : tuple
+        Arguments to pass to _register_one_tile_worker
+        
+    Returns
+    -------
+    tuple
+        Result from _register_one_tile_worker, or (None, exception) if failed
+    """
+    try:
+        return _register_one_tile_worker(args)
+    except Exception as e:
+        # Return error indicator
+        return (None, e)
+
+
 def register_all_tiles(ref_reader: PyramidalOMETiffReader,
                        target_reader: PyramidalOMETiffReader,
                        grid: TileGrid,
@@ -341,16 +364,8 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     results = []
     failed_tiles = []
     
-    def safe_worker_wrapper(args):
-        """Wrapper that catches exceptions in worker function."""
-        try:
-            return _register_one_tile_worker(args)
-        except Exception as e:
-            # Return error indicator
-            return (None, e)
-    
     with mp.Pool(num_workers) as pool:
-        worker_results = pool.map(safe_worker_wrapper, worker_args)
+        worker_results = pool.map(_safe_worker_wrapper, worker_args)
     
     # Process results and handle failures
     for tile_idx, result in enumerate(worker_results):
