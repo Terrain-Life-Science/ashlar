@@ -46,7 +46,13 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
     # Apply single Gaussian filter to accumulated cells (optimization: 1 filter instead of num_cells)
     # Use average sigma for efficiency while maintaining visual quality
     avg_radius = np.mean(radii) if radii else (cell_size_range[0] + cell_size_range[1]) / 2
-    img = filters.gaussian(img, sigma=avg_radius/4)
+    sigma = avg_radius / 4
+    # Optimize for large images: reduce sigma and limit kernel size
+    if h > 16384 or w > 16384:  # Very large images (16K+)
+        sigma = sigma * 0.6  # Reduce sigma by 40% for speed
+    elif h > 8192 or w > 8192:  # Large images (8K+)
+        sigma = sigma * 0.8  # Reduce sigma by 20% for speed
+    img = filters.gaussian(img, sigma=sigma, truncate=3.0)  # Limit kernel size
     
     return img
 
@@ -77,7 +83,13 @@ def create_dapi_channel(shape):
     img = np.clip(img, 0, 1)
     
     # Smooth slightly
-    img = filters.gaussian(img, sigma=1.0)
+    sigma = 1.0
+    # Optimize for large images: reduce sigma and limit kernel size
+    if h > 16384 or w > 16384:  # Very large images (16K+)
+        sigma = sigma * 0.6  # Reduce sigma by 40% for speed
+    elif h > 8192 or w > 8192:  # Large images (8K+)
+        sigma = sigma * 0.8  # Reduce sigma by 20% for speed
+    img = filters.gaussian(img, sigma=sigma, truncate=3.0)  # Limit kernel size
     
     return img
 
@@ -105,7 +117,13 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
             ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
             img[ring_mask] = np.random.uniform(0.5, 1.0)
         
-        img = filters.gaussian(img, sigma=2.0)
+        sigma = 2.0
+        # Optimize for large images: reduce sigma and limit kernel size
+        if h > 16384 or w > 16384:  # Very large images (16K+)
+            sigma = sigma * 0.6  # Reduce sigma by 40% for speed
+        elif h > 8192 or w > 8192:  # Large images (8K+)
+            sigma = sigma * 0.8  # Reduce sigma by 20% for speed
+        img = filters.gaussian(img, sigma=sigma, truncate=3.0)  # Limit kernel size
     else:
         # Random punctate structures
         img = np.zeros(shape, dtype=np.float32)
@@ -120,7 +138,13 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
             mask = (x - cx)**2 + (y - cy)**2 <= radius**2
             img[mask] = np.random.uniform(0.6, 1.0)
         
-        img = filters.gaussian(img, sigma=1.5)
+        sigma = 1.5
+        # Optimize for large images: reduce sigma and limit kernel size
+        if h > 16384 or w > 16384:  # Very large images (16K+)
+            sigma = sigma * 0.6  # Reduce sigma by 40% for speed
+        elif h > 8192 or w > 8192:  # Large images (8K+)
+            sigma = sigma * 0.8  # Reduce sigma by 20% for speed
+        img = filters.gaussian(img, sigma=sigma, truncate=3.0)  # Limit kernel size
     
     # Add background
     img += np.random.normal(0, 0.03, shape).astype(np.float32)
