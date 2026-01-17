@@ -42,12 +42,17 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     y_adj = tile_info.y + int(round(coarse_shift[0]))
     x_adj = tile_info.x + int(round(coarse_shift[1]))
     
+    # Store original coarse-shifted positions to preserve them as much as possible
+    original_y_adj = y_adj
+    original_x_adj = x_adj
+    
     # Clamp position to ensure we can extract a valid tile
     # Ensure at least 50% of original tile size is available
     min_tile_h = max(1, tile_info.height // 2)
     min_tile_w = max(1, tile_info.width // 2)
     
     # Clamp to valid range, ensuring minimum tile size
+    # But try to preserve the coarse-shifted position as much as possible
     y_adj = max(0, min(y_adj, h_max - min_tile_h))
     x_adj = max(0, min(x_adj, w_max - min_tile_w))
     
@@ -56,12 +61,32 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     tile_w = min(tile_info.width, w_max - x_adj)
     
     # Ensure minimum tile size for valid registration
-    # If tile would be too small, adjust position to get larger tile
+    # If tile would be too small, adjust position minimally while respecting coarse shift
+    # Preserve the coarse-shifted position as much as possible
     if tile_h < min_tile_h:
-        y_adj = max(0, h_max - tile_info.height)
+        # We need to move to get minimum tile size, but stay as close as possible to coarse-shifted position
+        # Determine which edge we're closer to and adjust minimally
+        if original_y_adj + tile_info.height > h_max:
+            # Original position was at/near bottom edge, move up just enough to get minimum size
+            # But don't move more than necessary - stay as close to original position as possible
+            y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
+        else:
+            # Original position was at/near top edge, move down just enough to get minimum size
+            # But don't move more than necessary - stay as close to original position as possible
+            y_adj = min(original_y_adj, h_max - min_tile_h)
         tile_h = min(tile_info.height, h_max - y_adj)
+    
     if tile_w < min_tile_w:
-        x_adj = max(0, w_max - tile_info.width)
+        # We need to move to get minimum tile size, but stay as close as possible to coarse-shifted position
+        # Determine which edge we're closer to and adjust minimally
+        if original_x_adj + tile_info.width > w_max:
+            # Original position was at/near right edge, move left just enough to get minimum size
+            # But don't move more than necessary - stay as close to original position as possible
+            x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
+        else:
+            # Original position was at/near left edge, move right just enough to get minimum size
+            # But don't move more than necessary - stay as close to original position as possible
+            x_adj = min(original_x_adj, w_max - min_tile_w)
         tile_w = min(tile_info.width, w_max - x_adj)
     
     # Extract tile
