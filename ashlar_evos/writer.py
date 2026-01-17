@@ -197,7 +197,7 @@ def write_aligned_cycle(input_file: Path,
                 # Apply transform to base level
                 transformed = apply_transform_to_channel(
                     reader, channel, transform_matrix, level=0, order=order, 
-                    use_gpu=use_gpu, use_memmap=use_memmap
+                    use_gpu=use_gpu
                 )
                 transformed_channels.append(transformed)
     

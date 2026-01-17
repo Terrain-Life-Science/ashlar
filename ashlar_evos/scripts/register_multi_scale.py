@@ -31,8 +31,14 @@ def find_cycle_files(input_dir: pathlib.Path) -> List[pathlib.Path]:
         Sorted list of cycle file paths
     """
     # Look for cycle_*.ome.tif files
-    pattern = str(input_dir / "cycle_*.ome.tif")
+    # Use resolve() to handle Windows path issues with glob
+    pattern = str((input_dir / "cycle_*.ome.tif").resolve())
     cycle_files = sorted([pathlib.Path(f) for f in glob.glob(pattern)])
+    
+    # If glob didn't find files, try listing directory directly
+    if not cycle_files:
+        pattern = str(input_dir / "cycle_*.ome.tif")
+        cycle_files = sorted([pathlib.Path(f) for f in glob.glob(pattern)])
     
     if not cycle_files:
         raise FileNotFoundError(f"No cycle files found in {input_dir}")
