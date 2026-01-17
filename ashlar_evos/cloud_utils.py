@@ -52,15 +52,22 @@ def calculate_optimal_pyramid_level(
     # Get actual number of pyramid levels from image metadata
     try:
         with OMEMetadata(cycle_file) as meta:
-            max_pyramid_level = meta.num_levels - 1  # Levels are 0-indexed
-        
-        # Clamp to available pyramid levels
-        optimal_level = min(optimal_level, max_pyramid_level)
+            num_levels = meta.num_levels
+            
+            # Validate: corrupted files may have 0 levels
+            if num_levels == 0:
+                # No pyramid levels available - use fallback
+                optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
+            else:
+                max_pyramid_level = num_levels - 1  # Levels are 0-indexed
+                # Clamp to available pyramid levels, ensuring >= 0
+                optimal_level = min(optimal_level, max(0, max_pyramid_level))
     except Exception:
         # If metadata reading fails, use a conservative default
         optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
     
-    return optimal_level
+    # Final validation: ensure optimal_level is never negative
+    return max(0, optimal_level)
 
 
 def optimize_worker_count(
