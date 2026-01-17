@@ -903,8 +903,52 @@ class EvosRegistrationPipeline:
             if self.checkpoint_path:
                 self.save_checkpoint()
     
+    def resume_from_checkpoint(self, checkpoint_path: Path) -> bool:
+        """
+        Resume pipeline from checkpoint.
+        
+        Parameters
+        ----------
+        checkpoint_path : Path
+            Path to checkpoint file
+            
+        Returns
+        -------
+        bool
+            True if checkpoint was loaded and validated successfully
+        """
+        try:
+            state = self.load_checkpoint(checkpoint_path)
+            
+            # Validate checkpoint compatibility
+            if len(state.cycle_files) != len(self.cycle_files):
+                self.logger.warning(
+                    f"Checkpoint has {len(state.cycle_files)} cycles, "
+                    f"but pipeline has {len(self.cycle_files)} cycles. "
+                    f"Checkpoint may be incompatible."
+                )
+                return False
+            
+            # Check if cycle files match
+            checkpoint_files = [Path(f) for f in state.cycle_files]
+            if checkpoint_files != self.cycle_files:
+                self.logger.warning(
+                    "Checkpoint cycle files don't match current pipeline files. "
+                    "Checkpoint may be incompatible."
+                )
+                return False
+            
+            self.logger.info("Checkpoint validated successfully")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to resume from checkpoint: {e}", exc_info=True)
+            return False
+    
     def run_full_pipeline(self, output_dir: Path, 
-                         report_path: Optional[Path] = None) -> Dict[int, Path]:
+                         report_path: Optional[Path] = None,
+                         checkpoint_path: Optional[Path] = None,
+                         resume: bool = False) -> Dict[int, Path]:
         """
         Run complete registration pipeline for all cycles.
         
@@ -914,6 +958,10 @@ class EvosRegistrationPipeline:
             Directory for output aligned files
         report_path : Path, optional
             Path to save JSON performance report (if None, only prints summary)
+        checkpoint_path : Path, optional
+            Path to checkpoint file for saving/loading state
+        resume : bool
+            If True, attempt to resume from checkpoint_path if it exists (default: False)
             
         Returns
         -------
@@ -923,35 +971,67 @@ class EvosRegistrationPipeline:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Set up checkpoint path
+        if checkpoint_path:
+            self.checkpoint_path = Path(checkpoint_path)
+        else:
+            # Default checkpoint location
+            self.checkpoint_path = output_dir / 'registration_checkpoint.json'
+        
+        # Try to resume from checkpoint if requested
+        if resume and self.checkpoint_path.exists():
+            self.logger.info(f"Attempting to resume from checkpoint: {self.checkpoint_path}")
+            if self.resume_from_checkpoint(self.checkpoint_path):
+                self.logger.info("Resuming from checkpoint - skipping completed phases")
+            else:
+                self.logger.warning("Checkpoint validation failed - starting from beginning")
+                # Reset state
+                self.completed_phases = []
+                self.completed_cycles = []
+        
         # Record input file sizes
         for cycle_file in self.cycle_files:
             self.performance_monitor.record_input_file(str(cycle_file))
         
         self._print("=" * 60)
         self._print("Evos Registration Pipeline")
+        if resume and self.completed_phases:
+            self._print("(Resuming from checkpoint)")
         self._print("=" * 60)
         self._print(f"Reference cycle: {self.reference_idx}")
         self._print(f"Total cycles: {len(self.cycle_files)}")
         self._print("")
         
-        # Phase 1: Coarse alignment
-        self.run_coarse_alignment()
-        self._print("")
+        # Phase 1: Coarse alignment (skip if already completed)
+        if 'coarse_alignment' not in self.completed_phases:
+            self.run_coarse_alignment()
+            self._print("")
+        else:
+            self._print("Phase 1: Coarse Alignment - SKIPPED (already completed)")
+            self._print("")
         
-        # Phase 2: Fine registration for each cycle (skip if coarse_only)
+        # Phase 2: Fine registration for each cycle (skip if coarse_only or already completed)
         if not self.coarse_only:
             for i in range(len(self.cycle_files)):
                 if i != self.reference_idx:
-                    self.run_fine_registration(i)
-                    self._print("")
+                    if i in self.completed_cycles:
+                        self._print(f"Phase 2: Fine Registration - Cycle {i} - SKIPPED (already completed)")
+                        self._print("")
+                    else:
+                        self.run_fine_registration(i)
+                        self._print("")
         else:
             self._print("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
             self._print("")
         
-        # Phase 3: Fit transforms
+        # Phase 3: Fit transforms (skip if already completed)
         for i in range(len(self.cycle_files)):
-            self.fit_transform(i)
-            self._print("")
+            if i in self.transforms and i in self.completed_cycles:
+                self._print(f"Phase 3: Transform Fitting - Cycle {i} - SKIPPED (already completed)")
+                self._print("")
+            else:
+                self.fit_transform(i)
+                self._print("")
             
             # Record accuracy metrics
             coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
@@ -961,13 +1041,18 @@ class EvosRegistrationPipeline:
                 i, coarse_shift, coarse_error, fine_shifts, transform_result
             )
         
-        # Phase 4: Apply transforms and write output
+        # Phase 4: Apply transforms and write output (skip if output file exists)
         output_files = {}
         for i in range(len(self.cycle_files)):
             output_file = output_dir / f"aligned_cycle_{i:02d}.ome.tif"
-            self.apply_transform(i, output_file)
-            output_files[i] = output_file
-            self._print("")
+            if output_file.exists() and i in self.completed_cycles:
+                self._print(f"Phase 4: Apply Transform - Cycle {i} - SKIPPED (output file exists)")
+                self._print("")
+                output_files[i] = output_file
+            else:
+                self.apply_transform(i, output_file)
+                output_files[i] = output_file
+                self._print("")
         
         # Finalize performance monitoring
         self.performance_monitor.finalize()
