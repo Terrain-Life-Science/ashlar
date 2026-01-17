@@ -6,8 +6,11 @@ and output writing.
 """
 
 import numpy as np
+import json
+import pickle
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
+from dataclasses import dataclass, asdict
 from .reader import PyramidalOMETiffReader
 from .metadata import OMEMetadata
 from .coarse_alignment import coarse_align_all_cycles
@@ -27,6 +30,85 @@ from .cloud_utils import (
     detect_large_image
 )
 from .logging_config import setup_logging, get_logger
+import logging
+
+
+@dataclass
+class CheckpointState:
+    """State information for pipeline checkpointing."""
+    pipeline_version: str = "1.0"
+    cycle_files: List[str] = None
+    reference_idx: int = 0
+    completed_phases: List[str] = None
+    coarse_shifts: Dict = None
+    fine_shifts: Dict = None
+    transforms: Dict = None
+    completed_cycles: List[int] = None
+    
+    def __post_init__(self):
+        """Initialize default values."""
+        if self.cycle_files is None:
+            self.cycle_files = []
+        if self.completed_phases is None:
+            self.completed_phases = []
+        if self.coarse_shifts is None:
+            self.coarse_shifts = {}
+        if self.fine_shifts is None:
+            self.fine_shifts = {}
+        if self.transforms is None:
+            self.transforms = {}
+        if self.completed_cycles is None:
+            self.completed_cycles = []
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        result = asdict(self)
+        # Convert numpy arrays to lists for JSON serialization
+        for key, value in result.items():
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if isinstance(v, np.ndarray):
+                        result[key][k] = v.tolist()
+                    elif isinstance(v, tuple) and len(v) == 2:
+                        # Handle (shift, error) tuples
+                        if isinstance(v[0], np.ndarray):
+                            result[key][k] = (v[0].tolist(), float(v[1]))
+            elif isinstance(value, list) and value:
+                # Handle lists of tuples with numpy arrays
+                new_list = []
+                for item in value:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        if isinstance(item[0], np.ndarray):
+                            new_list.append((item[0].tolist(), float(item[1])))
+                        else:
+                            new_list.append(item)
+                    else:
+                        new_list.append(item)
+                result[key] = new_list
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'CheckpointState':
+        """Create CheckpointState from dictionary."""
+        # Convert lists back to numpy arrays where needed
+        if 'coarse_shifts' in data and data['coarse_shifts']:
+            for k, v in data['coarse_shifts'].items():
+                if isinstance(v, (list, tuple)) and len(v) == 2:
+                    data['coarse_shifts'][k] = (np.array(v[0]), float(v[1]))
+        if 'fine_shifts' in data and data['fine_shifts']:
+            for k, v in data['fine_shifts'].items():
+                if isinstance(v, list):
+                    new_list = []
+                    for item in v:
+                        if isinstance(item, (list, tuple)) and len(item) == 2:
+                            if isinstance(item[0], list):
+                                new_list.append((np.array(item[0]), float(item[1])))
+                            else:
+                                new_list.append(item)
+                        else:
+                            new_list.append(item)
+                    data['fine_shifts'][k] = new_list
+        return cls(**data)
 
 
 class EvosRegistrationPipeline:
@@ -100,6 +182,11 @@ class EvosRegistrationPipeline:
         self.fine_shifts = {}
         self.transforms = {}
         self.metadata = {}
+        
+        # Checkpoint state
+        self.checkpoint_path = None
+        self.completed_phases = []
+        self.completed_cycles = []
         
         # Performance monitoring
         self.performance_monitor = PerformanceMonitor()
@@ -430,6 +517,130 @@ class EvosRegistrationPipeline:
         
         return True
     
+    def save_checkpoint(self, checkpoint_path: Optional[Path] = None) -> Path:
+        """
+        Save current pipeline state to checkpoint file.
+        
+        Parameters
+        ----------
+        checkpoint_path : Path, optional
+            Path to checkpoint file (default: None = use self.checkpoint_path)
+            
+        Returns
+        -------
+        Path
+            Path to saved checkpoint file
+        """
+        if checkpoint_path is None:
+            if self.checkpoint_path is None:
+                raise ValueError("No checkpoint path specified")
+            checkpoint_path = self.checkpoint_path
+        else:
+            self.checkpoint_path = checkpoint_path
+        
+        checkpoint_path = Path(checkpoint_path)
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Create checkpoint state
+        state = CheckpointState(
+            cycle_files=[str(f) for f in self.cycle_files],
+            reference_idx=self.reference_idx,
+            completed_phases=self.completed_phases.copy(),
+            coarse_shifts={
+                str(k): (v[0].tolist() if isinstance(v[0], np.ndarray) else list(v[0]), float(v[1]))
+                for k, v in self.coarse_shifts.items()
+            },
+            fine_shifts={
+                str(k): [
+                    (s[0].tolist() if isinstance(s[0], np.ndarray) else list(s[0]), float(s[1]))
+                    for s in v
+                ] if v else []
+                for k, v in self.fine_shifts.items()
+            },
+            transforms={
+                str(k): {
+                    'transform': v['transform'].tolist() if 'transform' in v and isinstance(v['transform'], np.ndarray) else v.get('transform'),
+                    'params': list(v['params']) if 'params' in v else [],
+                    'transform_type': v.get('transform_type', 'unknown'),
+                    'rmse': float(v.get('rmse', 0.0))
+                }
+                for k, v in self.transforms.items()
+            },
+            completed_cycles=self.completed_cycles.copy()
+        )
+        
+        # Save as JSON
+        with open(checkpoint_path, 'w') as f:
+            json.dump(state.to_dict(), f, indent=2)
+        
+        self.logger.debug(f"Checkpoint saved to: {checkpoint_path}")
+        return checkpoint_path
+    
+    def load_checkpoint(self, checkpoint_path: Path) -> 'CheckpointState':
+        """
+        Load pipeline state from checkpoint file.
+        
+        Parameters
+        ----------
+        checkpoint_path : Path
+            Path to checkpoint file
+            
+        Returns
+        -------
+        CheckpointState
+            Loaded checkpoint state
+        """
+        checkpoint_path = Path(checkpoint_path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
+        
+        with open(checkpoint_path, 'r') as f:
+            data = json.load(f)
+        
+        state = CheckpointState.from_dict(data)
+        
+        # Restore state
+        self.cycle_files = [Path(f) for f in state.cycle_files]
+        self.reference_idx = state.reference_idx
+        self.completed_phases = state.completed_phases.copy()
+        self.completed_cycles = state.completed_cycles.copy()
+        
+        # Restore coarse shifts (convert lists back to numpy arrays)
+        self.coarse_shifts = {}
+        for k, v in state.coarse_shifts.items():
+            cycle_idx = int(k)
+            if isinstance(v, (list, tuple)) and len(v) == 2:
+                shift = np.array(v[0]) if isinstance(v[0], list) else v[0]
+                error = float(v[1])
+                self.coarse_shifts[cycle_idx] = (shift, error)
+        
+        # Restore fine shifts
+        self.fine_shifts = {}
+        for k, v in state.fine_shifts.items():
+            cycle_idx = int(k)
+            if v:
+                shifts = [
+                    (np.array(s[0]) if isinstance(s[0], list) else s[0], float(s[1]))
+                    for s in v
+                ]
+                self.fine_shifts[cycle_idx] = shifts
+        
+        # Restore transforms
+        self.transforms = {}
+        for k, v in state.transforms.items():
+            cycle_idx = int(k)
+            transform_dict = v.copy()
+            if 'transform' in transform_dict and isinstance(transform_dict['transform'], list):
+                transform_dict['transform'] = np.array(transform_dict['transform'])
+            self.transforms[cycle_idx] = transform_dict
+        
+        self.checkpoint_path = checkpoint_path
+        self.logger.info(f"Checkpoint loaded from: {checkpoint_path}")
+        self.logger.info(f"  Completed phases: {', '.join(self.completed_phases)}")
+        self.logger.info(f"  Completed cycles: {self.completed_cycles}")
+        
+        return state
+    
     def run_coarse_alignment(self) -> Dict[int, Tuple[np.ndarray, float]]:
         """
         Run coarse alignment phase.
@@ -467,6 +678,12 @@ class EvosRegistrationPipeline:
                     # Validate shift magnitude
                     self._validate_shift(shift, i)
                     self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+            
+            # Mark phase as complete and save checkpoint
+            if 'coarse_alignment' not in self.completed_phases:
+                self.completed_phases.append('coarse_alignment')
+            if self.checkpoint_path:
+                self.save_checkpoint()
         
         return self.coarse_shifts
     
@@ -523,6 +740,12 @@ class EvosRegistrationPipeline:
                 )
                 self.fine_shifts[cycle_idx] = results
                 self._print(f"  Registered {len(results)} tiles")
+                
+                # Mark cycle as complete and save checkpoint
+                if cycle_idx not in self.completed_cycles:
+                    self.completed_cycles.append(cycle_idx)
+                if self.checkpoint_path:
+                    self.save_checkpoint()
             finally:
                 ref_reader.close()
                 target_reader.close()
@@ -621,6 +844,10 @@ class EvosRegistrationPipeline:
             result['transform_type'] = self.transform_type
             self.transforms[cycle_idx] = result
             self._print(f"  RMSE: {result['rmse']:.4f}")
+            
+            # Save checkpoint after transform fitting
+            if self.checkpoint_path:
+                self.save_checkpoint()
         
         return result
     
@@ -671,6 +898,10 @@ class EvosRegistrationPipeline:
             self.performance_monitor.record_output_file(str(output_file))
             
             self._print(f"  [OK] Complete: {output_file}")
+            
+            # Save checkpoint after each cycle is written
+            if self.checkpoint_path:
+                self.save_checkpoint()
     
     def run_full_pipeline(self, output_dir: Path, 
                          report_path: Optional[Path] = None) -> Dict[int, Path]:
