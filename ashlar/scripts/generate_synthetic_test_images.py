@@ -14,6 +14,7 @@ import pathlib
 import argparse
 import sys
 import gc
+import time
 
 
 def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
@@ -229,6 +230,13 @@ def generate_synthetic_cycle(
     print(f"  Shift: ({shift[0]:.2f}, {shift[1]:.2f}) pixels")
     
     # Create channels
+    # Add progress indicators for large images
+    is_large = h > 8192 or w > 8192
+    
+    if is_large:
+        print("  Creating channels...")
+        start_time = time.time()
+    
     # Channel 0: DAPI
     dapi = create_dapi_channel((h, w))
     
@@ -237,6 +245,10 @@ def generate_synthetic_cycle(
     
     # Channel 2: Fluorescence 2 (membrane pattern)
     fluo2 = create_fluorescence_channel((h, w), pattern_type='membrane')
+    
+    if is_large:
+        elapsed = time.time() - start_time
+        print(f"    Channels created in {elapsed:.2f} seconds")
     
     # Stack channels: (channels, height, width)
     img_stack = np.stack([dapi, fluo1, fluo2], axis=0)
@@ -247,9 +259,13 @@ def generate_synthetic_cycle(
     
     # Apply shift to all channels (simulating cycle-to-cycle misalignment)
     if shift != (0.0, 0.0):
+        print(f"  Applying shift ({shift[0]:.2f}, {shift[1]:.2f}) pixels...")
+        start_time = time.time()
         shifted_stack = np.zeros_like(img_stack)
         for c in range(3):
             shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
+        elapsed = time.time() - start_time
+        print(f"    Shift applied in {elapsed:.2f} seconds")
         img_stack = shifted_stack
         del shifted_stack  # Free memory
         gc.collect()
@@ -299,6 +315,10 @@ def generate_synthetic_cycle(
         
         # Generate and write subsequent levels immediately (streaming)
         for level in range(1, num_pyramid_levels):
+            # Add progress indicator for large images
+            if h > 8192 or w > 8192:
+                level_start = time.time()
+            
             # Downsample each channel from previous level (2x smaller than previous)
             # Use optimized downscale_local_mean (faster than manual averaging)
             level_channels = []
@@ -313,7 +333,11 @@ def generate_synthetic_cycle(
             # Stack channels: (C, Y, X)
             level_img = np.stack(level_channels, axis=0)
             
-            print(f"    Level {level}: {level_img.shape}")
+            if h > 8192 or w > 8192:
+                elapsed = time.time() - level_start
+                print(f"    Level {level}: {level_img.shape} (downsampled in {elapsed:.2f} seconds)")
+            else:
+                print(f"    Level {level}: {level_img.shape}")
             
             # Write this level immediately (streaming to disk)
             level_tile_size = min(tile_size, level_img.shape[1], level_img.shape[2])
