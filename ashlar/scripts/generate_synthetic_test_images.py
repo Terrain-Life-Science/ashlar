@@ -237,14 +237,22 @@ def generate_synthetic_cycle(
         print("  Creating channels...")
         start_time = time.time()
     
-    # Channel 0: DAPI
-    dapi = create_dapi_channel((h, w))
-    
-    # Channel 1: Fluorescence 1 (cytoplasmic pattern)
-    fluo1 = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
-    
-    # Channel 2: Fluorescence 2 (membrane pattern)
-    fluo2 = create_fluorescence_channel((h, w), pattern_type='membrane')
+    try:
+        # Channel 0: DAPI
+        dapi = create_dapi_channel((h, w))
+        
+        # Channel 1: Fluorescence 1 (cytoplasmic pattern)
+        fluo1 = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
+        
+        # Channel 2: Fluorescence 2 (membrane pattern)
+        fluo2 = create_fluorescence_channel((h, w), pattern_type='membrane')
+    except MemoryError as e:
+        print(f"  ERROR: Out of memory during channel creation: {e}")
+        print(f"  Try reducing image size or closing other applications.")
+        raise
+    except Exception as e:
+        print(f"  ERROR: Failed to create channels: {e}")
+        raise
     
     if is_large:
         elapsed = time.time() - start_time
@@ -261,14 +269,22 @@ def generate_synthetic_cycle(
     if shift != (0.0, 0.0):
         print(f"  Applying shift ({shift[0]:.2f}, {shift[1]:.2f}) pixels...")
         start_time = time.time()
-        shifted_stack = np.zeros_like(img_stack)
-        for c in range(3):
-            shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
-        elapsed = time.time() - start_time
-        print(f"    Shift applied in {elapsed:.2f} seconds")
-        img_stack = shifted_stack
-        del shifted_stack  # Free memory
-        gc.collect()
+        try:
+            shifted_stack = np.zeros_like(img_stack)
+            for c in range(3):
+                shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
+            elapsed = time.time() - start_time
+            print(f"    Shift applied in {elapsed:.2f} seconds")
+            img_stack = shifted_stack
+            del shifted_stack  # Free memory
+            gc.collect()
+        except MemoryError as e:
+            print(f"  ERROR: Out of memory during shift application: {e}")
+            print(f"  Try reducing image size or closing other applications.")
+            raise
+        except Exception as e:
+            print(f"  ERROR: Failed to apply shift: {e}")
+            raise
     
     # Convert to 16-bit
     img_stack = (img_stack * 65535).astype(np.uint16)
@@ -296,65 +312,92 @@ def generate_synthetic_cycle(
     
     # Write base level immediately
     print(f"  Writing to {output_path}...")
-    with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
-        # Write base level (Level 0)
-        tiff.write(
-            data=current_level,
-            metadata=metadata,
-            software="Synthetic Test Generator",
-            shape=current_level.shape,
-            subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
-            dtype=np.uint16,
-            tile=(tile_size, tile_size),
-            resolution=(resolution_cm, resolution_cm),
-            resolutionunit="centimeter",
-            photometric="minisblack",
-            compression="adobe_deflate",
-            predictor=True,
-        )
-        
-        # Generate and write subsequent levels immediately (streaming)
-        for level in range(1, num_pyramid_levels):
-            # Add progress indicator for large images
-            if h > 8192 or w > 8192:
-                level_start = time.time()
-            
-            # Downsample each channel from previous level (2x smaller than previous)
-            # Use optimized downscale_local_mean (faster than manual averaging)
-            level_channels = []
-            for c in range(3):
-                # downscale_local_mean handles odd dimensions automatically
-                downsampled = downscale_local_mean(
-                    current_level[c].astype(np.float32),
-                    (2, 2)  # Downsample by 2 in both dimensions
-                ).astype(np.uint16)
-                level_channels.append(downsampled)
-            
-            # Stack channels: (C, Y, X)
-            level_img = np.stack(level_channels, axis=0)
-            
-            if h > 8192 or w > 8192:
-                elapsed = time.time() - level_start
-                print(f"    Level {level}: {level_img.shape} (downsampled in {elapsed:.2f} seconds)")
-            else:
-                print(f"    Level {level}: {level_img.shape}")
-            
-            # Write this level immediately (streaming to disk)
-            level_tile_size = min(tile_size, level_img.shape[1], level_img.shape[2])
+    try:
+        with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
+            # Write base level (Level 0)
             tiff.write(
-                data=level_img,
-                shape=level_img.shape,
-                subfiletype=1,
+                data=current_level,
+                metadata=metadata,
+                software="Synthetic Test Generator",
+                shape=current_level.shape,
+                subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
                 dtype=np.uint16,
-                tile=(level_tile_size, level_tile_size),
+                tile=(tile_size, tile_size),
+                resolution=(resolution_cm, resolution_cm),
+                resolutionunit="centimeter",
+                photometric="minisblack",
                 compression="adobe_deflate",
                 predictor=True,
             )
             
-            # Update current level for next iteration and free memory
-            current_level = level_img
-            del level_img, level_channels  # Free memory after writing
-            gc.collect()
+            # Generate and write subsequent levels immediately (streaming)
+            for level in range(1, num_pyramid_levels):
+                try:
+                    # Add progress indicator for large images
+                    if h > 8192 or w > 8192:
+                        level_start = time.time()
+                    
+                    # Downsample each channel from previous level (2x smaller than previous)
+                    # Use optimized downscale_local_mean (faster than manual averaging)
+                    level_channels = []
+                    for c in range(3):
+                        # downscale_local_mean handles odd dimensions automatically
+                        downsampled = downscale_local_mean(
+                            current_level[c].astype(np.float32),
+                            (2, 2)  # Downsample by 2 in both dimensions
+                        ).astype(np.uint16)
+                        level_channels.append(downsampled)
+                    
+                    # Stack channels: (C, Y, X)
+                    level_img = np.stack(level_channels, axis=0)
+                    
+                    if h > 8192 or w > 8192:
+                        elapsed = time.time() - level_start
+                        print(f"    Level {level}: {level_img.shape} (downsampled in {elapsed:.2f} seconds)")
+                    else:
+                        print(f"    Level {level}: {level_img.shape}")
+                    
+                    # Write this level immediately (streaming to disk)
+                    level_tile_size = min(tile_size, level_img.shape[1], level_img.shape[2])
+                    tiff.write(
+                        data=level_img,
+                        shape=level_img.shape,
+                        subfiletype=1,
+                        dtype=np.uint16,
+                        tile=(level_tile_size, level_tile_size),
+                        compression="adobe_deflate",
+                        predictor=True,
+                    )
+                    
+                    # Update current level for next iteration and free memory
+                    current_level = level_img
+                    del level_img, level_channels  # Free memory after writing
+                    gc.collect()
+                except MemoryError as e:
+                    print(f"  ERROR: Out of memory creating pyramid level {level}: {e}")
+                    print(f"  Partial file may have been created. Try reducing image size.")
+                    raise
+                except Exception as e:
+                    print(f"  ERROR: Failed to create pyramid level {level}: {e}")
+                    print(f"  Partial file may have been created.")
+                    raise
+    except (IOError, OSError) as e:
+        print(f"  ERROR: Failed to write file: {e}")
+        print(f"  Check disk space and write permissions.")
+        # Try to clean up partial file
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        print(f"  ERROR: Unexpected error during file writing: {e}")
+        # Try to clean up partial file
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
     
     # Final memory cleanup
     del img_stack, current_level
