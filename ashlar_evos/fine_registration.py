@@ -73,7 +73,7 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
         else:
             # Original position was at/near top edge, move down just enough to get minimum size
             # But don't move more than necessary - stay as close to original position as possible
-            y_adj = min(original_y_adj, h_max - min_tile_h)
+            y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
         tile_h = min(tile_info.height, h_max - y_adj)
     
     if tile_w < min_tile_w:
@@ -86,7 +86,7 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
         else:
             # Original position was at/near left edge, move right just enough to get minimum size
             # But don't move more than necessary - stay as close to original position as possible
-            x_adj = min(original_x_adj, w_max - min_tile_w)
+            x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
         tile_w = min(tile_info.width, w_max - x_adj)
     
     # Extract tile
