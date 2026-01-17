@@ -12,9 +12,50 @@ Shifts remain constant in pixels across all scales (not proportional to image si
 
 import pathlib
 import sys
+import platform
 from ashlar.scripts.generate_synthetic_test_images import (
     generate_synthetic_cycle
 )
+
+
+def get_available_memory_gb():
+    """
+    Get available system memory in GB (works on Windows and Linux).
+    
+    Returns
+    -------
+    float
+        Available memory in GB, or None if unable to determine
+    """
+    try:
+        if platform.system() == 'Windows':
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            
+            mem_status = MEMORYSTATUSEX()
+            mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status))
+            return mem_status.ullAvailPhys / (1024**3)
+        else:
+            # Linux/Mac
+            import os
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if 'MemAvailable' in line:
+                        return float(line.split()[1]) / (1024**2)
+    except Exception:
+        return None
 
 
 def generate_multi_scale_images(
