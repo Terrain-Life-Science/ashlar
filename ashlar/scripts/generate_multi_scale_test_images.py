@@ -124,6 +124,44 @@ def generate_multi_scale_images(
         print(f"Generating {scale_factor}x scale images ({width}×{height} pixels)")
         print("-" * 70)
         
+        # Estimate memory requirements and check available memory
+        # Base image: width × height × 3 channels × 2 bytes (uint16)
+        base_image_memory_gb = (width * height * 3 * 2) / (1024**3)
+        # Peak memory: base image × 1.25 (accounts for temporary arrays during processing)
+        peak_memory_gb = base_image_memory_gb * 1.25
+        
+        # Check available memory and warn if insufficient
+        available_memory_gb = get_available_memory_gb()
+        if available_memory_gb is not None:
+            print(f"Memory check:")
+            print(f"  Available: {available_memory_gb:.2f} GB")
+            print(f"  Estimated peak: {peak_memory_gb:.2f} GB per cycle")
+            
+            # Memory thresholds based on scale
+            if scale_factor >= 16.0:  # 16x scale
+                required_memory_gb = 10.0
+                if available_memory_gb < required_memory_gb:
+                    print(f"  WARNING: Insufficient memory for {scale_factor}x scale!")
+                    print(f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)")
+                    print(f"  Generation may be very slow due to swapping to disk.")
+                    print(f"  Consider closing other applications or skipping this scale.")
+                    print()
+            elif scale_factor >= 8.0:  # 8x scale
+                required_memory_gb = 3.0
+                if available_memory_gb < required_memory_gb:
+                    print(f"  WARNING: Low memory for {scale_factor}x scale!")
+                    print(f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)")
+                    print(f"  Generation may be slow due to swapping to disk.")
+                    print()
+            else:
+                # For smaller scales, just show info
+                if available_memory_gb < peak_memory_gb * 1.5:
+                    print(f"  Note: Available memory is close to estimated peak usage.")
+                    print()
+        else:
+            print(f"  Note: Unable to check available memory (estimated peak: {peak_memory_gb:.2f} GB per cycle)")
+            print()
+        
         # Generate each cycle
         for cycle_num, shift in enumerate(shifts):
             output_path = output_dir / f"cycle_{cycle_num:02d}.ome.tif"
