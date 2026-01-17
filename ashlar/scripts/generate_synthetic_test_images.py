@@ -130,8 +130,21 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
 
 
 def apply_shift(img, dx, dy):
-    """Apply sub-pixel shift to image."""
-    return ndimage.shift(img, (dy, dx), order=3, mode='constant', cval=0.0)
+    """
+    Apply sub-pixel shift to image.
+    
+    Uses adaptive interpolation order for performance:
+    - order=3 (cubic) for images <= 8K×8K (high quality)
+    - order=1 (linear) for images > 8K×8K (5-10x faster, minimal quality loss for test images)
+    """
+    h, w = img.shape
+    # Use linear interpolation for large images (much faster, acceptable quality for test images)
+    # Threshold: 8192×8192 pixels (8K)
+    if h > 8192 or w > 8192:
+        order = 1  # Linear interpolation - 5-10x faster for large images
+    else:
+        order = 3  # Cubic interpolation - higher quality for smaller images
+    return ndimage.shift(img, (dy, dx), order=order, mode='constant', cval=0.0)
 
 
 def create_pyramidal_levels(img, num_levels=4):
