@@ -243,7 +243,7 @@ Examples:
         reference_idx=args.reference,
         dapi_channel=args.dapi_channel,
         pixel_size=args.pixel_size,
-        coarse_pyramid_level=args.coarse_level,
+        coarse_pyramid_level=coarse_level,  # Use computed level (may be optimized if --cloud)
         tile_size=args.tile_size,
         tile_overlap=args.tile_overlap,
         transform_type=args.transform_type,
