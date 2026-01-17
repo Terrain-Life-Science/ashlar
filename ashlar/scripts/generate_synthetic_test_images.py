@@ -3,6 +3,17 @@ Generate synthetic pyramidal OME-TIFF test images for registration testing.
 
 Creates 3 cycles with intentional shifts between them to test registration algorithms.
 Each cycle contains 3 channels: DAPI + 2 fluorescence channels.
+
+Optimizations for large images:
+- Adaptive interpolation order (linear for images > 8K×8K, cubic for smaller)
+- Optimized Gaussian filtering with reduced sigma for large images
+- Reduced noise generation for large images to save memory
+- Channel-by-channel memory management (convert to uint16 immediately)
+- Streaming pyramid levels to disk to reduce peak memory
+- Progress indicators for long operations on large images
+- Memory warnings for 8x and 16x scales
+
+Supports images up to 32768×32768 pixels (16x scale) with appropriate memory.
 """
 
 import numpy as np
@@ -215,13 +226,24 @@ def generate_synthetic_cycle(
     cycle_num : int
         Cycle number (0, 1, or 2)
     base_shape : tuple
-        Base resolution shape (height, width)
+        Base resolution shape (height, width). Supports up to 32768×32768 pixels.
     shift : tuple
         (dx, dy) shift in pixels to apply (for testing registration)
     pixel_size : float
         Pixel size in micrometers
     num_pyramid_levels : int
         Number of pyramid levels to create
+    
+    Notes
+    -----
+    This function is optimized for large images:
+    - Uses adaptive algorithms based on image size
+    - Streams pyramid levels to disk to reduce memory usage
+    - Converts channels to uint16 immediately to reduce peak memory
+    - Shows progress indicators for large images (>8K×8K)
+    - Includes error handling and memory warnings
+    
+    For very large images (8x, 16x scales), ensure sufficient RAM is available.
     """
     h, w = base_shape
     
@@ -421,7 +443,7 @@ def main(argv=sys.argv):
     """Generate 3 synthetic test cycles with known shifts."""
     
     parser = argparse.ArgumentParser(
-        description='Generate synthetic pyramidal OME-TIFF test images for registration testing',
+        description='Generate synthetic pyramidal OME-TIFF test images for registration testing. Optimized for large images up to 32768×32768 pixels.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -431,11 +453,17 @@ Examples:
   # Generate larger test images (4096x4096)
   python -m ashlar.scripts.generate_synthetic_test_images --size 4096 4096
   
+  # Generate very large test images (16384x16384, requires ~3 GB RAM)
+  python -m ashlar.scripts.generate_synthetic_test_images --size 16384 16384
+  
   # Generate with custom output directory
   python -m ashlar.scripts.generate_synthetic_test_images --output-dir ./test_data
   
   # Generate with more pyramid levels
   python -m ashlar.scripts.generate_synthetic_test_images --pyramid-levels 5
+
+Note: For very large images (>8K×8K), the script uses optimized algorithms and shows
+      progress indicators. Ensure sufficient RAM is available for large sizes.
         """
     )
     
@@ -452,7 +480,7 @@ Examples:
         nargs=2,
         metavar=('HEIGHT', 'WIDTH'),
         default=[2048, 2048],
-        help='Base image size in pixels (default: 2048 2048)'
+        help='Base image size in pixels (default: 2048 2048). Supports up to 32768×32768. Large images require significant RAM.'
     )
     
     parser.add_argument(
