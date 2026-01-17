@@ -238,14 +238,23 @@ def generate_synthetic_cycle(
         start_time = time.time()
     
     try:
-        # Channel 0: DAPI
-        dapi = create_dapi_channel((h, w))
+        # Channel 0: DAPI - convert to uint16 immediately and free float32
+        dapi_float = create_dapi_channel((h, w))
+        dapi = (dapi_float * 65535).astype(np.uint16)
+        del dapi_float
+        gc.collect()
         
-        # Channel 1: Fluorescence 1 (cytoplasmic pattern)
-        fluo1 = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
+        # Channel 1: Fluorescence 1 (cytoplasmic pattern) - convert immediately
+        fluo1_float = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
+        fluo1 = (fluo1_float * 65535).astype(np.uint16)
+        del fluo1_float
+        gc.collect()
         
-        # Channel 2: Fluorescence 2 (membrane pattern)
-        fluo2 = create_fluorescence_channel((h, w), pattern_type='membrane')
+        # Channel 2: Fluorescence 2 (membrane pattern) - convert immediately
+        fluo2_float = create_fluorescence_channel((h, w), pattern_type='membrane')
+        fluo2 = (fluo2_float * 65535).astype(np.uint16)
+        del fluo2_float
+        gc.collect()
     except MemoryError as e:
         print(f"  ERROR: Out of memory during channel creation: {e}")
         print(f"  Try reducing image size or closing other applications.")
@@ -258,7 +267,7 @@ def generate_synthetic_cycle(
         elapsed = time.time() - start_time
         print(f"    Channels created in {elapsed:.2f} seconds")
     
-    # Stack channels: (channels, height, width)
+    # Stack channels: (channels, height, width) - all are already uint16
     img_stack = np.stack([dapi, fluo1, fluo2], axis=0)
     
     # Free channel arrays (memory cleanup)
@@ -270,9 +279,13 @@ def generate_synthetic_cycle(
         print(f"  Applying shift ({shift[0]:.2f}, {shift[1]:.2f}) pixels...")
         start_time = time.time()
         try:
-            shifted_stack = np.zeros_like(img_stack)
+            shifted_stack = np.zeros_like(img_stack, dtype=np.uint16)
             for c in range(3):
-                shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
+                # apply_shift returns float64, so convert back to uint16 with clipping
+                shifted_float = apply_shift(img_stack[c], shift[0], shift[1])
+                shifted_stack[c] = np.clip(shifted_float, 0, 65535).astype(np.uint16)
+                del shifted_float  # Free immediately
+            gc.collect()
             elapsed = time.time() - start_time
             print(f"    Shift applied in {elapsed:.2f} seconds")
             img_stack = shifted_stack
@@ -285,9 +298,6 @@ def generate_synthetic_cycle(
         except Exception as e:
             print(f"  ERROR: Failed to apply shift: {e}")
             raise
-    
-    # Convert to 16-bit
-    img_stack = (img_stack * 65535).astype(np.uint16)
     
     # Prepare metadata and file writing
     resolution_cm = 10000 / pixel_size  # pixels per centimeter
