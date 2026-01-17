@@ -1,13 +1,18 @@
 """
 Generate synthetic pyramidal OME-TIFF test images at multiple scales for registration testing.
 
-Creates three sets of test images:
+Creates test images at multiple scales:
 - 1x scale: 2048×2048 pixels (baseline)
 - 2x scale: 4096×4096 pixels
 - 4x scale: 8192×8192 pixels
+- 8x scale: 16384×16384 pixels (requires ~3 GB RAM)
+- 16x scale: 32768×32768 pixels (requires ~10 GB RAM)
 
 Each set contains 3 cycles with intentional shifts between them to test registration algorithms.
 Shifts remain constant in pixels across all scales (not proportional to image size).
+
+Note: 8x and 16x scales require significant memory. The script will warn if insufficient
+memory is available. Generation may be slow due to swapping to disk if memory is limited.
 """
 
 import pathlib
@@ -65,7 +70,7 @@ def generate_multi_scale_images(
     shifts=None
 ):
     """
-    Generate test images at three scales (1x, 2x, 4x).
+    Generate test images at multiple scales (1x, 2x, 4x, 8x, 16x).
     
     Parameters
     ----------
@@ -83,6 +88,13 @@ def generate_multi_scale_images(
     -------
     dict
         Dictionary mapping scale factors to output directories
+    
+    Note
+    ----
+    Large scales (8x, 16x) require significant memory:
+    - 8x scale: ~3 GB RAM recommended
+    - 16x scale: ~10 GB RAM recommended
+    The script will warn if insufficient memory is detected.
     """
     if shifts is None:
         # Default shifts: Cycle 0: (0, 0), Cycle 1: (2.5, -1.8), Cycle 2: (8.3, 5.2)
@@ -99,6 +111,8 @@ def generate_multi_scale_images(
         (1.0, 2048, 2048, 'synthetic_test_images_1x'),
         (2.0, 4096, 4096, 'synthetic_test_images_2x'),
         (4.0, 8192, 8192, 'synthetic_test_images_4x'),
+        (8.0, 16384, 16384, 'synthetic_test_images_8x'),
+        (16.0, 32768, 32768, 'synthetic_test_images_16x'),
     ]
     
     output_dirs = {}
@@ -195,12 +209,15 @@ def main(argv=sys.argv):
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='Generate synthetic pyramidal OME-TIFF test images at multiple scales (1x, 2x, 4x)',
+        description='Generate synthetic pyramidal OME-TIFF test images at multiple scales (1x, 2x, 4x, 8x, 16x)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate all three scales with default settings
+  # Generate all scales (1x, 2x, 4x, 8x, 16x) with default settings
   python -m ashlar.scripts.generate_multi_scale_test_images
+  
+  Note: 8x and 16x scales require significant memory (~3 GB and ~10 GB respectively).
+        The script will warn if insufficient memory is detected.
   
   # Generate with custom base output directory
   python -m ashlar.scripts.generate_multi_scale_test_images --base-dir ./test_data
@@ -217,7 +234,7 @@ Examples:
         '--base-dir', '-b',
         type=str,
         default='.',
-        help='Base directory for output (default: current directory). Creates subdirectories: synthetic_test_images_1x/, _2x/, _4x/'
+        help='Base directory for output (default: current directory). Creates subdirectories: synthetic_test_images_1x/, _2x/, _4x/, _8x/, _16x/'
     )
     
     parser.add_argument(
