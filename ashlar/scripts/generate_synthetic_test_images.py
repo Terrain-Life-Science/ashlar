@@ -245,6 +245,8 @@ def generate_synthetic_cycle(
     
     For very large images (8x, 16x scales), ensure sufficient RAM is available.
     """
+    # Convert output_path to Path for consistent handling (especially for .unlink() in error handling)
+    output_path = pathlib.Path(output_path)
     h, w = base_shape
     
     print(f"Generating Cycle {cycle_num}...")
