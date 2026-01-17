@@ -190,51 +190,7 @@ def generate_synthetic_cycle(
     # Convert to 16-bit
     img_stack = (img_stack * 65535).astype(np.uint16)
     
-    # Create pyramid levels
-    # Each level is 2x smaller than the previous level (not 4x per iteration)
-    print(f"  Creating {num_pyramid_levels} pyramid levels...")
-    pyramid_levels = []
-    
-    # Start with base level
-    current_level = img_stack.copy()
-    pyramid_levels.append(current_level)
-    print(f"    Level 0: {current_level.shape}")
-    
-    # Generate subsequent levels by downsampling from previous level
-    for level in range(1, num_pyramid_levels):
-        # Downsample each channel from previous level (2x smaller than previous)
-        level_channels = []
-        for c in range(3):
-            temp = current_level[c].astype(np.float32)
-            # Downsample by 2 in rows (2x reduction in height)
-            # Handle odd dimensions by trimming to match sizes
-            even_rows = temp[::2, :]
-            odd_rows = temp[1::2, :]
-            # Trim to match smaller size if dimensions are odd
-            min_rows = min(even_rows.shape[0], odd_rows.shape[0])
-            temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
-            
-            # Downsample by 2 in columns (2x reduction in width)
-            # Handle odd dimensions by trimming to match sizes
-            even_cols = temp[:, ::2]
-            odd_cols = temp[:, 1::2]
-            # Trim to match smaller size if dimensions are odd
-            min_cols = min(even_cols.shape[1], odd_cols.shape[1])
-            temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
-            level_channels.append(temp.astype(np.uint16))
-        
-        # Stack channels: (C, Y, X)
-        level_img = np.stack(level_channels, axis=0)
-        
-        pyramid_levels.append(level_img)
-        print(f"    Level {level}: {level_img.shape}")
-        
-        # Update current level for next iteration
-        current_level = level_img
-    
-    # Write pyramidal OME-TIFF
-    print(f"  Writing to {output_path}...")
-    
+    # Prepare metadata and file writing
     resolution_cm = 10000 / pixel_size  # pixels per centimeter
     metadata = {
         "Creator": "Synthetic Test Image Generator",
@@ -245,16 +201,25 @@ def generate_synthetic_cycle(
             "PhysicalSizeYUnit": "µm",
         },
     }
-    
     tile_size = 1024
     
+    # Create pyramid levels and write immediately (streaming to disk for memory efficiency)
+    # Each level is 2x smaller than the previous level (not 4x per iteration)
+    print(f"  Creating {num_pyramid_levels} pyramid levels...")
+    
+    # Start with base level
+    current_level = img_stack  # Use directly, no copy needed
+    print(f"    Level 0: {current_level.shape}")
+    
+    # Write base level immediately
+    print(f"  Writing to {output_path}...")
     with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
         # Write base level (Level 0)
         tiff.write(
-            data=pyramid_levels[0],
+            data=current_level,
             metadata=metadata,
             software="Synthetic Test Generator",
-            shape=pyramid_levels[0].shape,
+            shape=current_level.shape,
             subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
             dtype=np.uint16,
             tile=(tile_size, tile_size),
@@ -265,20 +230,49 @@ def generate_synthetic_cycle(
             predictor=True,
         )
         
-        # Write pyramid levels (Level 1, 2, 3, ...)
-        if num_pyramid_levels > 1:
-            for level in range(1, num_pyramid_levels):
-                level_tile_size = min(tile_size, pyramid_levels[level].shape[1], 
-                                     pyramid_levels[level].shape[2])
-                tiff.write(
-                    data=pyramid_levels[level],
-                    shape=pyramid_levels[level].shape,
-                    subfiletype=1,
-                    dtype=np.uint16,
-                    tile=(level_tile_size, level_tile_size),
-                    compression="adobe_deflate",
-                    predictor=True,
-                )
+        # Generate and write subsequent levels immediately (streaming)
+        for level in range(1, num_pyramid_levels):
+            # Downsample each channel from previous level (2x smaller than previous)
+            level_channels = []
+            for c in range(3):
+                temp = current_level[c].astype(np.float32)
+                # Downsample by 2 in rows (2x reduction in height)
+                # Handle odd dimensions by trimming to match sizes
+                even_rows = temp[::2, :]
+                odd_rows = temp[1::2, :]
+                # Trim to match smaller size if dimensions are odd
+                min_rows = min(even_rows.shape[0], odd_rows.shape[0])
+                temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
+                
+                # Downsample by 2 in columns (2x reduction in width)
+                # Handle odd dimensions by trimming to match sizes
+                even_cols = temp[:, ::2]
+                odd_cols = temp[:, 1::2]
+                # Trim to match smaller size if dimensions are odd
+                min_cols = min(even_cols.shape[1], odd_cols.shape[1])
+                temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
+                level_channels.append(temp.astype(np.uint16))
+            
+            # Stack channels: (C, Y, X)
+            level_img = np.stack(level_channels, axis=0)
+            
+            print(f"    Level {level}: {level_img.shape}")
+            
+            # Write this level immediately (streaming to disk)
+            level_tile_size = min(tile_size, level_img.shape[1], level_img.shape[2])
+            tiff.write(
+                data=level_img,
+                shape=level_img.shape,
+                subfiletype=1,
+                dtype=np.uint16,
+                tile=(level_tile_size, level_tile_size),
+                compression="adobe_deflate",
+                predictor=True,
+            )
+            
+            # Update current level for next iteration and free memory
+            current_level = level_img
+            # Note: level_img will be freed when we overwrite current_level in next iteration
     
     print(f"  [OK] Complete: {output_path}")
     print()
