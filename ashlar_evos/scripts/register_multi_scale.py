@@ -1,8 +1,9 @@
 """
 Batch registration script for multi-scale test images.
 
-Runs registration pipeline on all three image scales (1x, 2x, 4x) and generates
-a combined report with scaling analysis.
+Runs registration pipeline on all image scales (1x, 2x, 4x, 8x, 16x) and generates
+a combined report with scaling analysis. Supports optional max-scale parameter to
+skip larger scales if memory is limited.
 """
 
 import argparse
@@ -185,10 +186,11 @@ def generate_multi_scale_report(
     transform_type: str = 'similarity',
     num_workers: Optional[int] = None,
     verbose: bool = True,
-    coarse_only: bool = False
+    coarse_only: bool = False,
+    max_scale: float = 16.0
 ) -> Dict:
     """
-    Run registration on all three scales and generate combined report.
+    Run registration on all scales (1x, 2x, 4x, 8x, 16x) and generate combined report.
     
     Parameters
     ----------
@@ -212,6 +214,8 @@ def generate_multi_scale_report(
         Print progress messages
     coarse_only : bool
         Skip fine registration
+    max_scale : float
+        Maximum scale to process (default: 16.0). Scales larger than this will be skipped.
         
     Returns
     -------
@@ -223,6 +227,8 @@ def generate_multi_scale_report(
         (1.0, 2048, 2048, 'synthetic_test_images/1x', 'aligned_output_1x'),
         (2.0, 4096, 4096, 'synthetic_test_images/2x', 'aligned_output_2x'),
         (4.0, 8192, 8192, 'synthetic_test_images/4x', 'aligned_output_4x'),
+        (8.0, 16384, 16384, 'synthetic_test_images/8x', 'aligned_output_8x'),
+        (16.0, 32768, 32768, 'synthetic_test_images/16x', 'aligned_output_16x'),
     ]
     
     runs = []
@@ -234,11 +240,17 @@ def generate_multi_scale_report(
         logger.info("=" * 70)
         logger.info(f"Base input directory: {base_input_dir}")
         logger.info(f"Base output directory: {base_output_dir}")
-        logger.info(f"Scales: 1x, 2x, 4x")
+        logger.info(f"Scales: 1x, 2x, 4x, 8x, 16x")
         logger.info("")
     
-    # Run registration for each scale
+    # Run registration for each scale (up to max_scale)
     for scale_factor, width, height, input_dir_suffix, output_dir_suffix in scales:
+        # Skip scales larger than max_scale
+        if scale_factor > max_scale:
+            if verbose:
+                logger.info(f"[SKIP] Scale {scale_factor}x exceeds max_scale={max_scale}")
+            continue
+        
         input_dir = base_input_dir / input_dir_suffix
         output_dir = base_output_dir / output_dir_suffix
         
@@ -288,7 +300,7 @@ def generate_multi_scale_report(
 def main(argv=None):
     """Main entry point for multi-scale registration."""
     parser = argparse.ArgumentParser(
-        description='Run registration pipeline on multi-scale test images (1x, 2x, 4x)',
+        description='Run registration pipeline on multi-scale test images (1x, 2x, 4x, 8x, 16x)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -300,6 +312,9 @@ Examples:
   
   # Run with custom tile size
   python -m ashlar_evos.scripts.register_multi_scale --base-input-dir . --base-output-dir . --tile-size 2048
+  
+  # Skip large scales (8x, 16x) if memory is limited
+  # Note: 8x and 16x scales require significant memory and processing time
         """
     )
     
@@ -307,14 +322,22 @@ Examples:
         '--base-input-dir', '-i',
         type=pathlib.Path,
         required=True,
-        help='Base directory containing synthetic_test_images/ with scale subdirectories (1x/, 2x/, 4x/)'
+        help='Base directory containing synthetic_test_images/ with scale subdirectories (1x/, 2x/, 4x/, 8x/, 16x/)'
     )
     
     parser.add_argument(
         '--base-output-dir', '-o',
         type=pathlib.Path,
         required=True,
-        help='Base directory for output scale subdirectories (aligned_output_1x/, _2x/, _4x/)'
+        help='Base directory for output scale subdirectories (aligned_output_1x/, _2x/, _4x/, _8x/, _16x/)'
+    )
+    
+    parser.add_argument(
+        '--max-scale',
+        type=float,
+        default=16.0,
+        choices=[1.0, 2.0, 4.0, 8.0, 16.0],
+        help='Maximum scale to process (default: 16.0). Use to skip larger scales if memory is limited.'
     )
     
     parser.add_argument(
@@ -410,7 +433,8 @@ Examples:
             transform_type=args.transform_type,
             num_workers=args.num_workers,
             verbose=not args.quiet,
-            coarse_only=args.coarse_only
+            coarse_only=args.coarse_only,
+            max_scale=args.max_scale
         )
         
         # Save combined report
