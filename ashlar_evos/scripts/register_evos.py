@@ -136,8 +136,13 @@ Examples:
     
     args = parser.parse_args(argv)
     
-    # Set up logging
-    log_file = args.output_dir / 'registration.log' if args.output_dir else None
+    # Set up logging - organize logs into logs/ subdirectory
+    if args.output_dir:
+        logs_dir = args.output_dir / 'logs'
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir / 'registration.log'
+    else:
+        log_file = None
     logger = setup_logging(
         log_level='DEBUG' if not args.quiet else 'WARNING',
         log_file=log_file,

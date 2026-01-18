@@ -223,12 +223,13 @@ def generate_multi_scale_report(
         Combined multi-scale report
     """
     # Define scales (now inside synthetic_test_images/ directory)
+    # Organize outputs into output/ subdirectory
     scales = [
-        (1.0, 2048, 2048, 'synthetic_test_images/1x', 'aligned_output_1x'),
-        (2.0, 4096, 4096, 'synthetic_test_images/2x', 'aligned_output_2x'),
-        (4.0, 8192, 8192, 'synthetic_test_images/4x', 'aligned_output_4x'),
-        (8.0, 16384, 16384, 'synthetic_test_images/8x', 'aligned_output_8x'),
-        (16.0, 32768, 32768, 'synthetic_test_images/16x', 'aligned_output_16x'),
+        (1.0, 2048, 2048, 'synthetic_test_images/1x', 'output/aligned_output_1x'),
+        (2.0, 4096, 4096, 'synthetic_test_images/2x', 'output/aligned_output_2x'),
+        (4.0, 8192, 8192, 'synthetic_test_images/4x', 'output/aligned_output_4x'),
+        (8.0, 16384, 16384, 'synthetic_test_images/8x', 'output/aligned_output_8x'),
+        (16.0, 32768, 32768, 'synthetic_test_images/16x', 'output/aligned_output_16x'),
     ]
     
     runs = []
@@ -329,7 +330,7 @@ Examples:
         '--base-output-dir', '-o',
         type=pathlib.Path,
         required=True,
-        help='Base directory for output scale subdirectories (aligned_output_1x/, _2x/, _4x/, _8x/, _16x/)'
+        help='Base directory for outputs. Creates output/ subdirectory with aligned_output_1x/, _2x/, _4x/, _8x/, _16x/ and logs/ subdirectory'
     )
     
     parser.add_argument(
@@ -403,8 +404,13 @@ Examples:
     
     args = parser.parse_args(argv)
     
-    # Set up logging
-    log_file = args.base_output_dir / 'multi_scale_registration.log' if args.base_output_dir else None
+    # Set up logging - organize logs into logs/ subdirectory
+    if args.base_output_dir:
+        logs_dir = args.base_output_dir / 'logs'
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir / 'multi_scale_registration.log'
+    else:
+        log_file = None
     logger = setup_logging(
         log_level='DEBUG' if not args.quiet else 'WARNING',
         log_file=log_file,

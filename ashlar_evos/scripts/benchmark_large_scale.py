@@ -257,8 +257,10 @@ Examples:
     
     args = parser.parse_args(argv)
     
-    # Set up logging
-    log_file = args.output_dir / 'benchmark.log'
+    # Set up logging - organize logs into logs/ subdirectory
+    logs_dir = args.output_dir / 'logs'
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_file = logs_dir / 'benchmark.log'
     logger = setup_logging(
         log_level='INFO',
         log_file=log_file,

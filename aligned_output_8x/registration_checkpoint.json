@@ -1,0 +1,38 @@
+{
+  "pipeline_version": "1.0",
+  "cycle_files": [
+    "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\8x\\cycle_00.ome.tif",
+    "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\8x\\cycle_01.ome.tif",
+    "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\8x\\cycle_02.ome.tif"
+  ],
+  "reference_idx": 0,
+  "completed_phases": [
+    "coarse_alignment"
+  ],
+  "coarse_shifts": {
+    "0": [
+      [
+        0.0,
+        0.0
+      ],
+      0.0
+    ],
+    "1": [
+      [
+        2.0,
+        -3.0
+      ],
+      0.174993097782135
+    ],
+    "2": [
+      [
+        -5.0,
+        -8.0
+      ],
+      0.057809267193078995
+    ]
+  },
+  "fine_shifts": {},
+  "transforms": {},
+  "completed_cycles": []
+}

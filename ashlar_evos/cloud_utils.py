@@ -33,6 +33,9 @@ def calculate_optimal_pyramid_level(
     Maintains consistent effective resolution (~256×256) regardless of image size,
     ensuring fast coarse alignment for large images while maintaining accuracy.
     
+    For very large images (8x: 16384×16384, 16x: 32768×32768), enforces minimum
+    pyramid level 3 to prevent memory crashes during coarse alignment.
+    
     Parameters
     ----------
     image_width : int
@@ -52,11 +55,19 @@ def calculate_optimal_pyramid_level(
     """
     image_dimension = max(image_width, image_height)
     
-    # Calculate pyramid level: level N means image is 2^N times smaller
-    # We want: image_dimension / 2^level ≈ target_effective_size
-    # So: 2^level ≈ image_dimension / target_effective_size
-    # Therefore: level ≈ log2(image_dimension / target_effective_size)
-    optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
+    # For very large images (8x and 16x), enforce minimum level 3 to prevent OOM
+    # 8x scale: 16384×16384 pixels
+    # 16x scale: 32768×32768 pixels
+    min_level_for_large_images = 3
+    if image_dimension >= 16384:
+        # Enforce minimum level 3 for 8x and 16x images
+        optimal_level = min_level_for_large_images
+    else:
+        # Calculate pyramid level: level N means image is 2^N times smaller
+        # We want: image_dimension / 2^level ≈ target_effective_size
+        # So: 2^level ≈ image_dimension / target_effective_size
+        # Therefore: level ≈ log2(image_dimension / target_effective_size)
+        optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
     
     # Get actual number of pyramid levels from image metadata
     try:
@@ -70,10 +81,24 @@ def calculate_optimal_pyramid_level(
             else:
                 max_pyramid_level = num_levels - 1  # Levels are 0-indexed
                 # Clamp to available pyramid levels, ensuring >= 0
-                optimal_level = min(optimal_level, max(0, max_pyramid_level))
+                # For large images, ensure we don't go below minimum level if available
+                if image_dimension >= 16384:
+                    # For 8x/16x images, use level 3 if available, otherwise use highest available
+                    if max_pyramid_level >= min_level_for_large_images:
+                        optimal_level = min_level_for_large_images
+                    else:
+                        # If level 3 not available, use highest available level
+                        optimal_level = max_pyramid_level
+                else:
+                    # For smaller images, clamp to available levels
+                    optimal_level = min(optimal_level, max(0, max_pyramid_level))
     except Exception:
         # If metadata reading fails, use a conservative default
-        optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
+        if image_dimension >= 16384:
+            # For large images, enforce level 3 (or fallback to 4 if that's max)
+            optimal_level = min(min_level_for_large_images, 4)
+        else:
+            optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
     
     # Final validation: ensure optimal_level is never negative
     return max(0, optimal_level)
