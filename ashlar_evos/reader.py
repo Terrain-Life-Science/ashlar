@@ -259,20 +259,30 @@ class PyramidalOMETiffReader:
             if channel >= zarr_img.shape[2]:
                 raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[2]-1})")
             h_max, w_max = zarr_img.shape[3], zarr_img.shape[4]
-            h = min(h, h_max - y)
-            w = min(w, w_max - x)
+            # Check bounds BEFORE adjusting size to prevent negative slice indices
             if y < 0 or x < 0 or y >= h_max or x >= w_max:
                 raise ValueError(f"Tile position ({y}, {x}) out of bounds")
+            # Adjust tile size to fit within image bounds
+            h = min(h, h_max - y)
+            w = min(w, w_max - x)
+            # Ensure size is positive after adjustment
+            if h <= 0 or w <= 0:
+                raise ValueError(f"Invalid tile size after bounds adjustment: h={h}, w={w}")
             return np.array(zarr_img[0, 0, channel, y:y+h, x:x+w, 0])
         elif len(zarr_img.shape) == 3:
             # Shape is (C, Y, X)
             if channel >= zarr_img.shape[0]:
                 raise ValueError(f"Channel {channel} does not exist (max: {zarr_img.shape[0]-1})")
             h_max, w_max = zarr_img.shape[1], zarr_img.shape[2]
-            h = min(h, h_max - y)
-            w = min(w, w_max - x)
+            # Check bounds BEFORE adjusting size to prevent negative slice indices
             if y < 0 or x < 0 or y >= h_max or x >= w_max:
                 raise ValueError(f"Tile position ({y}, {x}) out of bounds")
+            # Adjust tile size to fit within image bounds
+            h = min(h, h_max - y)
+            w = min(w, w_max - x)
+            # Ensure size is positive after adjustment
+            if h <= 0 or w <= 0:
+                raise ValueError(f"Invalid tile size after bounds adjustment: h={h}, w={w}")
             return np.array(zarr_img[channel, y:y+h, x:x+w])
         else:
             raise ValueError(f"Unexpected zarr shape: {zarr_img.shape}")

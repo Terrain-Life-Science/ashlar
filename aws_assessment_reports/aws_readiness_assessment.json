@@ -1,0 +1,62 @@
+{
+  "assessment_date": "2026-01-18T08:31:55.075158",
+  "account_info": {
+    "caller_identity": {
+      "account_id": "257394485343",
+      "user_id": "AIDATX3PIFBPX654AG62U",
+      "arn": "arn:aws:iam::257394485343:user/jlee8usa",
+      "is_root": false
+    },
+    "account_status": {
+      "note": "Additional account attributes require specific IAM permissions"
+    },
+    "service_quotas": {
+      "L-0263D0A3": {
+        "service": "ec2",
+        "quota_name": "EC2-VPC Elastic IPs",
+        "value": 5.0,
+        "adjustable": true
+      },
+      "L-DB2E81BA": {
+        "service": "ec2",
+        "quota_name": "Running On-Demand G and VT instances",
+        "value": 0.0,
+        "adjustable": true
+      },
+      "L-DC2B2D3D": {
+        "service": "s3",
+        "quota_name": "General purpose buckets",
+        "value": 10000.0,
+        "adjustable": true
+      }
+    },
+    "regions": [
+      "ap-south-1",
+      "eu-north-1",
+      "eu-west-3",
+      "eu-west-2",
+      "eu-west-1",
+      "ap-northeast-3",
+      "ap-northeast-2",
+      "ap-northeast-1",
+      "ca-central-1",
+      "sa-east-1",
+      "ap-southeast-1",
+      "ap-southeast-2",
+      "eu-central-1",
+      "us-east-1",
+      "us-east-2",
+      "us-west-1",
+      "us-west-2"
+    ]
+  },
+  "iam_assessment": {},
+  "ec2_inventory": {},
+  "s3_inventory": {},
+  "networking": {},
+  "monitoring": {},
+  "cost_analysis": {},
+  "recommendations": [],
+  "risks": [],
+  "warnings": []
+}
