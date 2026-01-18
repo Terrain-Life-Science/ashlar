@@ -20,6 +20,9 @@ def write_pyramidal_ometiff(output_path: Path,
     """
     Write pyramidal OME-TIFF file with multiple channels.
     
+    Writes pyramid levels incrementally to avoid loading all levels into memory.
+    This is memory-efficient for large images (e.g., 16x scale = 32768×32768).
+    
     Parameters
     ----------
     output_path : Path
@@ -45,43 +48,10 @@ def write_pyramidal_ometiff(output_path: Path,
     if channel_names is None:
         channel_names = [f"Channel_{i}" for i in range(len(channels))]
     
-    # Generate pyramid levels with proper downsampling
-    # Each level is 2x smaller than the previous level (not 4x per iteration)
-    pyramid_data = []
-    
-    # Start with base level
-    current_level_channels = [ch.copy() for ch in channels]
-    pyramid_data.append(np.stack(current_level_channels, axis=0))
-    
-    # Generate subsequent levels by downsampling from previous level
-    for level in range(1, num_pyramid_levels):
-        # Downsample each channel from previous level (2x smaller than previous)
-        level_channels = []
-        for channel in current_level_channels:
-            temp = channel.astype(np.float32)
-            # Downsample by 2 in rows (2x reduction in height)
-            # Handle odd dimensions by trimming to match sizes
-            even_rows = temp[::2, :]
-            odd_rows = temp[1::2, :]
-            # Trim to match smaller size if dimensions are odd
-            min_rows = min(even_rows.shape[0], odd_rows.shape[0])
-            temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
-            
-            # Downsample by 2 in columns (2x reduction in width)
-            # Handle odd dimensions by trimming to match sizes
-            even_cols = temp[:, ::2]
-            odd_cols = temp[:, 1::2]
-            # Trim to match smaller size if dimensions are odd
-            min_cols = min(even_cols.shape[1], odd_cols.shape[1])
-            temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
-            level_channels.append(temp.astype(np.uint16))
-        
-        # Stack channels: (C, Y, X)
-        level_data = np.stack(level_channels, axis=0)
-        pyramid_data.append(level_data)
-        
-        # Update current level for next iteration
-        current_level_channels = level_channels
+    # Determine if we need incremental writing (for large images)
+    # Threshold: ~100M pixels (roughly 10K×10K) - use incremental for larger images
+    image_area = base_shape[0] * base_shape[1]
+    use_incremental = image_area > 100_000_000  # 100M pixels threshold
     
     # Write OME-TIFF with pyramid
     # Use tifffile's OME-TIFF writer with subifds for pyramid levels
@@ -98,37 +68,154 @@ def write_pyramidal_ometiff(output_path: Path,
     
     tile_size = 1024
     
-    with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tif:
-        # Write base level (Level 0)
-        tif.write(
-            data=pyramid_data[0],
-            metadata=metadata,
-            software="Ashlar-Evos",
-            shape=pyramid_data[0].shape,
-            subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
-            dtype=np.uint16,
-            tile=(tile_size, tile_size),
-            resolution=(resolution_cm, resolution_cm),
-            resolutionunit="centimeter",
-            photometric="minisblack",
-            compression="adobe_deflate",
-            predictor=True,
-        )
-        
-        # Write pyramid levels (Level 1, 2, 3, ...)
-        if num_pyramid_levels > 1:
+    # Determine if we need BigTIFF (for files > 4GB)
+    # Estimate: base level size = num_channels * height * width * 2 bytes
+    estimated_base_size = len(channels) * base_shape[0] * base_shape[1] * 2
+    use_bigtiff = estimated_base_size > 4_000_000_000  # 4GB threshold
+    
+    with tifffile.TiffWriter(output_path, ome=True, bigtiff=use_bigtiff) as tif:
+        if use_incremental:
+            # Incremental writing: write base level first, then generate and write each pyramid level
+            # This avoids keeping all pyramid levels in memory simultaneously
+            
+            # Write base level (Level 0)
+            base_level_data = np.stack(channels, axis=0)  # (C, Y, X)
+            tif.write(
+                data=base_level_data,
+                metadata=metadata,
+                software="Ashlar-Evos",
+                shape=base_level_data.shape,
+                subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
+                dtype=np.uint16,
+                tile=(tile_size, tile_size),
+                resolution=(resolution_cm, resolution_cm),
+                resolutionunit="centimeter",
+                photometric="minisblack",
+                compression="adobe_deflate",
+                predictor=True,
+            )
+            
+            # Generate and write pyramid levels incrementally
+            if num_pyramid_levels > 1:
+                current_level_channels = channels
+                
+                for level in range(1, num_pyramid_levels):
+                    # Downsample each channel from previous level (2x smaller than previous)
+                    level_channels = []
+                    for channel in current_level_channels:
+                        temp = channel.astype(np.float32)
+                        # Downsample by 2 in rows (2x reduction in height)
+                        # Handle odd dimensions by trimming to match sizes
+                        even_rows = temp[::2, :]
+                        odd_rows = temp[1::2, :]
+                        # Trim to match smaller size if dimensions are odd
+                        min_rows = min(even_rows.shape[0], odd_rows.shape[0])
+                        temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
+                        
+                        # Downsample by 2 in columns (2x reduction in width)
+                        # Handle odd dimensions by trimming to match sizes
+                        even_cols = temp[:, ::2]
+                        odd_cols = temp[:, 1::2]
+                        # Trim to match smaller size if dimensions are odd
+                        min_cols = min(even_cols.shape[1], odd_cols.shape[1])
+                        temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
+                        level_channels.append(temp.astype(np.uint16))
+                    
+                    # Stack channels: (C, Y, X)
+                    level_data = np.stack(level_channels, axis=0)
+                    
+                    # Write this pyramid level immediately
+                    level_tile_size = min(tile_size, level_data.shape[1], level_data.shape[2])
+                    tif.write(
+                        data=level_data,
+                        shape=level_data.shape,
+                        subfiletype=1,  # Reduced resolution
+                        dtype=np.uint16,
+                        tile=(level_tile_size, level_tile_size),
+                        compression="adobe_deflate",
+                        predictor=True,
+                    )
+                    
+                    # Update current level for next iteration (only keep what we need)
+                    # For memory efficiency, we can delete the previous level after downsampling
+                    # But we need to keep the current level for the next iteration
+                    current_level_channels = level_channels
+                    
+                    # Free memory by explicitly deleting large arrays
+                    del level_data
+                    if level > 1:
+                        # Can delete channels from 2 levels ago
+                        pass  # Python GC will handle this
+        else:
+            # For smaller images, use original approach (all levels in memory)
+            # Generate pyramid levels with proper downsampling
+            # Each level is 2x smaller than the previous level (not 4x per iteration)
+            pyramid_data = []
+            
+            # Start with base level
+            current_level_channels = [ch.copy() for ch in channels]
+            pyramid_data.append(np.stack(current_level_channels, axis=0))
+            
+            # Generate subsequent levels by downsampling from previous level
             for level in range(1, num_pyramid_levels):
-                level_tile_size = min(tile_size, pyramid_data[level].shape[1], 
-                                     pyramid_data[level].shape[2])
-                tif.write(
-                    data=pyramid_data[level],
-                    shape=pyramid_data[level].shape,
-                    subfiletype=1,  # Reduced resolution
-                    dtype=np.uint16,
-                    tile=(level_tile_size, level_tile_size),
-                    compression="adobe_deflate",
-                    predictor=True,
-                )
+                # Downsample each channel from previous level (2x smaller than previous)
+                level_channels = []
+                for channel in current_level_channels:
+                    temp = channel.astype(np.float32)
+                    # Downsample by 2 in rows (2x reduction in height)
+                    # Handle odd dimensions by trimming to match sizes
+                    even_rows = temp[::2, :]
+                    odd_rows = temp[1::2, :]
+                    # Trim to match smaller size if dimensions are odd
+                    min_rows = min(even_rows.shape[0], odd_rows.shape[0])
+                    temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
+                    
+                    # Downsample by 2 in columns (2x reduction in width)
+                    # Handle odd dimensions by trimming to match sizes
+                    even_cols = temp[:, ::2]
+                    odd_cols = temp[:, 1::2]
+                    # Trim to match smaller size if dimensions are odd
+                    min_cols = min(even_cols.shape[1], odd_cols.shape[1])
+                    temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
+                    level_channels.append(temp.astype(np.uint16))
+                
+                # Stack channels: (C, Y, X)
+                level_data = np.stack(level_channels, axis=0)
+                pyramid_data.append(level_data)
+                
+                # Update current level for next iteration
+                current_level_channels = level_channels
+            
+            # Write base level (Level 0)
+            tif.write(
+                data=pyramid_data[0],
+                metadata=metadata,
+                software="Ashlar-Evos",
+                shape=pyramid_data[0].shape,
+                subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
+                dtype=np.uint16,
+                tile=(tile_size, tile_size),
+                resolution=(resolution_cm, resolution_cm),
+                resolutionunit="centimeter",
+                photometric="minisblack",
+                compression="adobe_deflate",
+                predictor=True,
+            )
+            
+            # Write pyramid levels (Level 1, 2, 3, ...)
+            if num_pyramid_levels > 1:
+                for level in range(1, num_pyramid_levels):
+                    level_tile_size = min(tile_size, pyramid_data[level].shape[1], 
+                                         pyramid_data[level].shape[2])
+                    tif.write(
+                        data=pyramid_data[level],
+                        shape=pyramid_data[level].shape,
+                        subfiletype=1,  # Reduced resolution
+                        dtype=np.uint16,
+                        tile=(level_tile_size, level_tile_size),
+                        compression="adobe_deflate",
+                        predictor=True,
+                    )
 
 
 def write_aligned_cycle(input_file: Path,

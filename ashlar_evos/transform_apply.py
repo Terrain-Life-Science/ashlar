@@ -5,6 +5,8 @@ Applies similarity or affine transforms to align target images to reference.
 """
 
 import numpy as np
+import tempfile
+import os
 from pathlib import Path
 from typing import Tuple, Optional, List
 from scipy import ndimage
@@ -428,6 +430,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     Apply transform to all channels using tiled processing.
     
     Processes image in tiles to avoid loading entire image into memory.
+    Uses memory-mapped arrays for large images to prevent OOM errors.
     Returns transformed channels as a list.
     
     Parameters
@@ -457,66 +460,134 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     # Create tile grid
     grid = TileGrid(image_shape, tile_size=tile_size, overlap=tile_overlap)
     num_channels = reader.get_num_channels()
+    h, w = image_shape
+    
+    # Determine if we need memory-mapped arrays (for large images)
+    # Threshold: ~100M pixels (roughly 10K×10K) - use memmap for larger images
+    image_area = h * w
+    use_memmap = image_area > 100_000_000  # 100M pixels threshold
     
     # Initialize output channels and weight maps for blending
-    h, w = image_shape
-    transformed_channels = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
-    weight_maps = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
+    # Use memory-mapped arrays for large images to avoid OOM
+    temp_files = []
+    transformed_channels = []
+    weight_maps = []
     
-    # Process each channel
-    for channel_idx in range(num_channels):
-        # Process each tile
-        for tile_info in grid:
-            # Apply transform to tile
-            transformed_tile = apply_transform_to_tile(
-                reader, channel_idx, tile_info, transform_matrix,
-                level=level, order=order, use_gpu=use_gpu
-            )
-            
-            # Create weight map for this tile (feather edges for smooth blending)
-            y0, x0 = tile_info.y, tile_info.x
-            th, tw = transformed_tile.shape
-            
-            # Create weight map: 1.0 in center, feathering to 0.5 at edges
-            # This ensures smooth blending in overlap regions
-            tile_weight = np.ones((th, tw), dtype=np.float64)
-            feather_size = min(tile_overlap // 2, min(th, tw) // 4)
-            
-            if feather_size > 0:
-                # Feather top edge
-                for i in range(feather_size):
-                    weight = 0.5 + 0.5 * (i + 1) / feather_size
-                    tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+    try:
+        if use_memmap:
+            # Create temporary files for memory-mapped arrays
+            for ch_idx in range(num_channels):
+                # Create temp file for transformed channel
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_files.append(temp_file.name)
+                temp_file.close()
                 
-                # Feather bottom edge
-                for i in range(feather_size):
-                    weight = 0.5 + 0.5 * (i + 1) / feather_size
-                    tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                # Create memory-mapped array
+                transformed_ch = np.memmap(
+                    temp_file.name,
+                    dtype=np.float64,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                transformed_ch[:] = 0.0
+                transformed_channels.append(transformed_ch)
                 
-                # Feather left edge
-                for j in range(feather_size):
-                    weight = 0.5 + 0.5 * (j + 1) / feather_size
-                    tile_weight[:, j] = np.minimum(tile_weight[:, j], weight)
+                # Create temp file for weight map
+                temp_file_weight = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_files.append(temp_file_weight.name)
+                temp_file_weight.close()
                 
-                # Feather right edge
-                for j in range(feather_size):
-                    weight = 0.5 + 0.5 * (j + 1) / feather_size
-                    tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
-            
-            # Accumulate weighted tile values
-            transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
-            weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
+                # Create memory-mapped array for weight map
+                weight_map = np.memmap(
+                    temp_file_weight.name,
+                    dtype=np.float64,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                weight_map[:] = 0.0
+                weight_maps.append(weight_map)
+        else:
+            # For smaller images, use regular arrays
+            transformed_channels = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
+            weight_maps = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
         
-        # Normalize by weight map to get final blended result
-        # Avoid division by zero
-        weight_map = weight_maps[channel_idx]
-        mask = weight_map > 0
-        transformed_channels[channel_idx][mask] /= weight_map[mask]
-        transformed_channels[channel_idx][~mask] = 0
+        # Process each channel
+        for channel_idx in range(num_channels):
+            # Process each tile
+            for tile_info in grid:
+                # Apply transform to tile
+                transformed_tile = apply_transform_to_tile(
+                    reader, channel_idx, tile_info, transform_matrix,
+                    level=level, order=order, use_gpu=use_gpu
+                )
+                
+                # Create weight map for this tile (feather edges for smooth blending)
+                y0, x0 = tile_info.y, tile_info.x
+                th, tw = transformed_tile.shape
+                
+                # Create weight map: 1.0 in center, feathering to 0.5 at edges
+                # This ensures smooth blending in overlap regions
+                tile_weight = np.ones((th, tw), dtype=np.float64)
+                feather_size = min(tile_overlap // 2, min(th, tw) // 4)
+                
+                if feather_size > 0:
+                    # Feather top edge
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+                    
+                    # Feather bottom edge
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                    
+                    # Feather left edge
+                    for j in range(feather_size):
+                        weight = 0.5 + 0.5 * (j + 1) / feather_size
+                        tile_weight[:, j] = np.minimum(tile_weight[:, j], weight)
+                    
+                    # Feather right edge
+                    for j in range(feather_size):
+                        weight = 0.5 + 0.5 * (j + 1) / feather_size
+                        tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
+                
+                # Accumulate weighted tile values
+                transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
+                weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
+            
+            # Normalize by weight map to get final blended result
+            # Avoid division by zero
+            weight_map = weight_maps[channel_idx]
+            mask = weight_map > 0
+            transformed_channels[channel_idx][mask] /= weight_map[mask]
+            transformed_channels[channel_idx][~mask] = 0
+            
+            # Convert back to uint16
+            # For memmap arrays, we need to copy to a regular array
+            if use_memmap:
+                # Convert memmap to regular array
+                transformed_uint16 = np.clip(
+                    transformed_channels[channel_idx], 0, 65535
+                ).astype(np.uint16)
+                transformed_channels[channel_idx] = transformed_uint16
+            else:
+                transformed_channels[channel_idx] = np.clip(
+                    transformed_channels[channel_idx], 0, 65535
+                ).astype(np.uint16)
         
-        # Convert back to uint16
-        transformed_channels[channel_idx] = np.clip(
-            transformed_channels[channel_idx], 0, 65535
-        ).astype(np.uint16)
+        # Convert memmap arrays to regular arrays for return
+        if use_memmap:
+            result = [np.array(ch, dtype=np.uint16) for ch in transformed_channels]
+        else:
+            result = transformed_channels
+        
+        return result
     
-    return transformed_channels
+    finally:
+        # Clean up temporary files
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except Exception:
+                pass  # Ignore cleanup errors
