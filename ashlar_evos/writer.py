@@ -49,9 +49,12 @@ def write_pyramidal_ometiff(output_path: Path,
         channel_names = [f"Channel_{i}" for i in range(len(channels))]
     
     # Determine if we need incremental writing (for large images)
-    # Threshold: ~100M pixels (roughly 10K×10K) - use incremental for larger images
+    # Lower threshold to 50M pixels to be more conservative
+    # 8x images: 16384×16384 = 268M pixels (will use incremental)
+    # 16x images: 32768×32768 = 1.07B pixels (will use incremental)
     image_area = base_shape[0] * base_shape[1]
-    use_incremental = image_area > 100_000_000  # 100M pixels threshold
+    # Use incremental writing for images > 50M pixels (roughly 7K×7K or larger)
+    use_incremental = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
     
     # Write OME-TIFF with pyramid
     # Use tifffile's OME-TIFF writer with subifds for pyramid levels
