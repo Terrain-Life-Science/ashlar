@@ -311,6 +311,61 @@ class EvosRegistrationPipeline:
         if self.verbose or level in ('WARNING', 'ERROR', 'CRITICAL'):
             self.logger.log(log_level, message)
     
+    def _print_clean(self, message: str, level: str = 'INFO', use_timestamp: bool = False):
+        """
+        Print message with cleaner formatting.
+        
+        - Regular progress: no timestamps, direct to stdout
+        - Warnings/Errors: with timestamps, via logger
+        
+        Parameters
+        ----------
+        message : str
+            Message to print
+        level : str
+            Log level ('INFO', 'WARNING', 'ERROR', 'CRITICAL')
+        use_timestamp : bool
+            If True, use logger with timestamps (default: False)
+        """
+        if level in ('WARNING', 'ERROR', 'CRITICAL'):
+            # Always log warnings/errors with timestamps
+            log_level = getattr(logging, level.upper(), logging.INFO)
+            self.logger.log(log_level, message)
+        elif self.verbose:
+            if use_timestamp:
+                # Use logger for messages that need timestamps
+                self.logger.info(message)
+            else:
+                # Direct print for cleaner progress output
+                print(message)
+    
+    def _print_header(self, title: str):
+        """Print a clean section header."""
+        print()
+        print("=" * 70)
+        print(f"  {title}")
+        print("=" * 70)
+    
+    def _print_phase_start(self, phase_num: int, phase_name: str, cycle_idx: Optional[int] = None):
+        """Print phase start with clean formatting."""
+        cycle_str = f" - Cycle {cycle_idx}" if cycle_idx is not None else ""
+        print(f"\n[{phase_num}] {phase_name}{cycle_str}")
+        print("-" * 70)
+    
+    def _print_status(self, message: str, status: str = "✓"):
+        """Print status message with indicator."""
+        print(f"  {status} {message}")
+    
+    def _print_progress(self, current: int, total: int, item_name: str = "items"):
+        """Print progress indicator."""
+        percent = (current / total * 100) if total > 0 else 0
+        bar_length = 40
+        filled = int(bar_length * current / total) if total > 0 else 0
+        bar = "█" * filled + "░" * (bar_length - filled)
+        print(f"  [{bar}] {current}/{total} {item_name} ({percent:.1f}%)", end='\r')
+        if current == total:
+            print()  # New line when complete
+    
     def _log_memory_usage(self, phase_name: str = ""):
         """
         Log current memory usage for monitoring.
@@ -774,7 +829,7 @@ class EvosRegistrationPipeline:
             Dictionary mapping cycle index to (shift, error) tuple
         """
         with self.performance_monitor.phase("Coarse Alignment"):
-            self._print("Phase 1: Coarse Alignment")
+            self._print_phase_start(1, "Coarse Alignment")
             self._log_memory_usage("Coarse Alignment (start)")
             
             # If coarse_only, use level 2 (4x downsampled) with 10x upsampling for sub-pixel accuracy
@@ -782,11 +837,11 @@ class EvosRegistrationPipeline:
             if self.coarse_only:
                 pyramid_level = 2  # 4x downsampled - minimizes memory usage
                 upsample = 10
-                self._print(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
+                self._print_clean(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
             else:
                 pyramid_level = self.coarse_pyramid_level
                 upsample = 1
-                self._print(f"  Using pyramid level {pyramid_level}")
+                self._print_clean(f"  Using pyramid level {pyramid_level}")
             
             self.coarse_shifts = coarse_align_all_cycles(
                 self.cycle_files,
@@ -796,12 +851,12 @@ class EvosRegistrationPipeline:
                 upsample=upsample
             )
             
-            self._print(f"  Reference cycle: {self.reference_idx}")
+            self._print_clean(f"  Reference cycle: {self.reference_idx}")
             for i, (shift, error) in self.coarse_shifts.items():
                 if i != self.reference_idx:
                     # Validate shift magnitude
                     self._validate_shift(shift, i)
-                    self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+                    self._print_clean(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
             
             self._log_memory_usage("Coarse Alignment (end)")
             
@@ -837,7 +892,7 @@ class EvosRegistrationPipeline:
             raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
         
         with self.performance_monitor.phase(f"Fine Registration - Cycle {cycle_idx}"):
-            self._print(f"Phase 2: Fine Registration - Cycle {cycle_idx}")
+            self._print_phase_start(2, "Fine Registration", cycle_idx=cycle_idx)
             
             # Get image shape from metadata
             with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
@@ -845,7 +900,7 @@ class EvosRegistrationPipeline:
             
             # Create tile grid
             grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
-            self._print(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
+            self._print_clean(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
             
             # Get coarse shift
             coarse_shift, _ = self.coarse_shifts[cycle_idx]
@@ -857,7 +912,7 @@ class EvosRegistrationPipeline:
             try:
                 # Validate coarse shift before fine registration
                 if not self._validate_shift(coarse_shift, cycle_idx):
-                    self._print(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
+                    self._print_clean(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
                 
                 results = register_all_tiles(
                     ref_reader, target_reader, grid,
@@ -867,7 +922,7 @@ class EvosRegistrationPipeline:
                     skip_failed_tiles=True  # Skip failed tiles gracefully
                 )
                 self.fine_shifts[cycle_idx] = results
-                self._print(f"  Registered {len(results)} tiles")
+                self._print_status(f"Registered {len(results)} tiles")
                 
                 self._log_memory_usage(f"Fine Registration (end) - Cycle {cycle_idx}")
                 
@@ -919,7 +974,8 @@ class EvosRegistrationPipeline:
                 raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
             
             with self.performance_monitor.phase(f"Transform Creation - Cycle {cycle_idx}"):
-                self._print(f"Phase 3: Transform Creation - Cycle {cycle_idx} (coarse-only mode)")
+                self._print_phase_start(3, "Transform Creation", cycle_idx=cycle_idx)
+                self._print_clean("  (coarse-only mode)")
                 
                 coarse_shift, coarse_error = self.coarse_shifts[cycle_idx]
                 # Create translation transform: [1, 0, tx; 0, 1, ty; 0, 0, 1]
@@ -939,8 +995,8 @@ class EvosRegistrationPipeline:
                 }
                 
                 self.transforms[cycle_idx] = result
-                self._print(f"  Translation: ({coarse_shift[1]:.4f}, {coarse_shift[0]:.4f}) pixels")
-                self._print(f"  Error: {coarse_error:.4f}")
+                self._print_clean(f"  Translation: ({coarse_shift[1]:.4f}, {coarse_shift[0]:.4f}) pixels")
+                self._print_clean(f"  Error: {coarse_error:.4f}")
             
             return result
         
@@ -949,7 +1005,7 @@ class EvosRegistrationPipeline:
             raise ValueError(f"Fine registration not run for cycle {cycle_idx}")
         
         with self.performance_monitor.phase(f"Transform Fitting - Cycle {cycle_idx}"):
-            self._print(f"Phase 3: Transform Fitting - Cycle {cycle_idx}")
+            self._print_phase_start(3, "Transform Fitting", cycle_idx=cycle_idx)
             
             # Get image shape and create grid
             with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
@@ -966,7 +1022,7 @@ class EvosRegistrationPipeline:
             # Filter outliers
             inliers = filter_outliers(shifts, errors, max_shift=50.0, max_error=None)
             num_inliers = np.sum(inliers)
-            self._print(f"  Inliers: {num_inliers}/{len(shifts)}")
+            self._print_clean(f"  Inliers: {num_inliers}/{len(shifts)}")
             
             # Fit transform
             if self.transform_type == 'similarity':
@@ -978,7 +1034,7 @@ class EvosRegistrationPipeline:
             
             result['transform_type'] = self.transform_type
             self.transforms[cycle_idx] = result
-            self._print(f"  RMSE: {result['rmse']:.4f}")
+            self._print_clean(f"  RMSE: {result['rmse']:.4f}")
             
             self._log_memory_usage(f"Transform Fitting (end) - Cycle {cycle_idx}")
             
@@ -1009,15 +1065,15 @@ class EvosRegistrationPipeline:
             transform_matrix = self.transforms[cycle_idx]['transform']
         
         with self.performance_monitor.phase(f"Apply Transform - Cycle {cycle_idx}"):
-            self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
-            self._print(f"  Writing to: {output_file}")
+            self._print_phase_start(4, "Apply Transform", cycle_idx=cycle_idx)
+            self._print_clean(f"  Writing to: {output_file}")
             self._log_memory_usage(f"Transform Application (start) - Cycle {cycle_idx}")
             
             # Check if GPU is available
             from .transform_apply import is_gpu_available
             use_gpu = is_gpu_available() and self.performance_monitor.metrics.gpu_available
             if use_gpu:
-                self._print(f"Using GPU acceleration for transform", level='INFO')
+                self._print_clean(f"Using GPU acceleration for transform")
             
             write_aligned_cycle(
                 self.cycle_files[cycle_idx],
@@ -1037,7 +1093,7 @@ class EvosRegistrationPipeline:
             
             self._log_memory_usage(f"Transform Application (end) - Cycle {cycle_idx}")
             
-            self._print(f"  [OK] Complete: {output_file}")
+            self._print_status(f"Complete: {output_file}")
             
             # Save checkpoint after each cycle is written
             if self.checkpoint_path:
@@ -1133,45 +1189,44 @@ class EvosRegistrationPipeline:
         for cycle_file in self.cycle_files:
             self.performance_monitor.record_input_file(str(cycle_file))
         
-        self._print("=" * 60)
-        self._print("Evos Registration Pipeline")
+        title = "Evos Registration Pipeline"
         if resume and self.completed_phases:
-            self._print("(Resuming from checkpoint)")
-        self._print("=" * 60)
-        self._print(f"Reference cycle: {self.reference_idx}")
-        self._print(f"Total cycles: {len(self.cycle_files)}")
-        self._print("")
+            title += " (Resuming from checkpoint)"
+        self._print_header(title)
+        self._print_clean(f"Reference cycle: {self.reference_idx}")
+        self._print_clean(f"Total cycles: {len(self.cycle_files)}")
+        print()
         
         # Phase 1: Coarse alignment (skip if already completed)
         if 'coarse_alignment' not in self.completed_phases:
             self.run_coarse_alignment()
-            self._print("")
+            print()
         else:
-            self._print("Phase 1: Coarse Alignment - SKIPPED (already completed)")
-            self._print("")
+            self._print_clean("Phase 1: Coarse Alignment - SKIPPED (already completed)")
+            print()
         
         # Phase 2: Fine registration for each cycle (skip if coarse_only or already completed)
         if not self.coarse_only:
             for i in range(len(self.cycle_files)):
                 if i != self.reference_idx:
                     if i in self.completed_cycles:
-                        self._print(f"Phase 2: Fine Registration - Cycle {i} - SKIPPED (already completed)")
-                        self._print("")
+                        self._print_clean(f"Phase 2: Fine Registration - Cycle {i} - SKIPPED (already completed)")
+                        print()
                     else:
                         self.run_fine_registration(i)
-                        self._print("")
+                        print()
         else:
-            self._print("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
-            self._print("")
+            self._print_clean("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
+            print()
         
         # Phase 3: Fit transforms (skip if already completed)
         for i in range(len(self.cycle_files)):
             if i in self.transforms and i in self.completed_cycles:
-                self._print(f"Phase 3: Transform Fitting - Cycle {i} - SKIPPED (already completed)")
-                self._print("")
+                self._print_clean(f"Phase 3: Transform Fitting - Cycle {i} - SKIPPED (already completed)")
+                print()
             else:
                 self.fit_transform(i)
-                self._print("")
+                print()
             
             # Record accuracy metrics
             coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
@@ -1186,22 +1241,20 @@ class EvosRegistrationPipeline:
         for i in range(len(self.cycle_files)):
             output_file = output_dir / f"aligned_cycle_{i:02d}.ome.tif"
             if output_file.exists() and i in self.completed_cycles:
-                self._print(f"Phase 4: Apply Transform - Cycle {i} - SKIPPED (output file exists)")
-                self._print("")
+                self._print_clean(f"Phase 4: Apply Transform - Cycle {i} - SKIPPED (output file exists)")
+                print()
                 output_files[i] = output_file
             else:
                 self.apply_transform(i, output_file)
                 output_files[i] = output_file
-                self._print("")
+                print()
         
         # Finalize performance monitoring
         self.performance_monitor.finalize()
         
         # Generate and print summary report
-        self._print("=" * 60)
-        self._print("Registration Complete!")
-        self._print("=" * 60)
-        self._print("")
+        self._print_header("Registration Complete!")
+        print()
         
         # Print performance summary
         self.performance_monitor.print_summary()
@@ -1213,6 +1266,6 @@ class EvosRegistrationPipeline:
                 scale_factor=self.scale_factor,
                 image_size=self.image_size
             )
-            self._print(f"\n[OK] Performance report saved to: {report_path}")
+            self._print_status(f"Performance report saved to: {report_path}")
         
         return output_files

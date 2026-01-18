@@ -97,24 +97,25 @@ def run_registration_for_scale(
     dict
         Report dictionary for this scale
     """
+    logger = get_logger('ashlar_evos.scripts.register_multi_scale')
     if verbose:
-        logger = get_logger('ashlar_evos.scripts.register_multi_scale')
-        logger.info("=" * 70)
-        logger.info(f"Running Registration for {scale_factor}x Scale")
-        logger.info(f"  Image size: {image_size['width']}×{image_size['height']} pixels")
-        logger.info(f"  Input directory: {input_dir}")
-        logger.info(f"  Output directory: {output_dir}")
-        logger.info("=" * 70)
-        logger.info("")
+        print()
+        print("=" * 70)
+        print(f"Running Registration for {scale_factor}x Scale")
+        print(f"  Image size: {image_size['width']}×{image_size['height']} pixels")
+        print(f"  Input directory: {input_dir}")
+        print(f"  Output directory: {output_dir}")
+        print("=" * 70)
+        print()
     
     # Find cycle files
     cycle_files = find_cycle_files(input_dir)
     
     if verbose:
-        logger.info(f"Found {len(cycle_files)} cycle files:")
+        print(f"Found {len(cycle_files)} cycle files:")
         for f in cycle_files:
-            logger.info(f"  {f.name}")
-        logger.info("")
+            print(f"  {f.name}")
+        print()
     
     # Use adaptive pyramid level if image_size is provided
     # Calculate optimal level BEFORE creating pipeline to avoid validation errors
@@ -127,12 +128,12 @@ def run_registration_for_scale(
                 cycle_files[0]
             )
             if verbose:
-                logger.info(f"  Adaptive pyramid level: {actual_coarse_level} (requested: {coarse_level})")
-                logger.info("")
+                print(f"  Adaptive pyramid level: {actual_coarse_level} (requested: {coarse_level})")
+                print()
         except Exception as e:
             if verbose:
                 logger.warning(f"Could not calculate optimal pyramid level: {e}")
-                logger.info("")
+                print()
     
     # Create pipeline with scale metadata
     # Use the calculated optimal level to avoid validation errors
@@ -175,9 +176,9 @@ def run_registration_for_scale(
     gc.collect()
     
     if verbose:
-        logger.info("")
-        logger.info(f"[OK] {scale_factor}x scale registration complete")
-        logger.info("")
+        print()
+        print(f"[OK] {scale_factor}x scale registration complete")
+        print()
     
     return report
 
@@ -242,28 +243,31 @@ def generate_multi_scale_report(
     
     logger = get_logger('ashlar_evos.scripts.register_multi_scale')
     if verbose:
-        logger.info("=" * 70)
-        logger.info("Multi-Scale Registration Pipeline")
-        logger.info("=" * 70)
-        logger.info(f"Base input directory: {base_input_dir}")
-        logger.info(f"Base output directory: {base_output_dir}")
-        logger.info(f"Scales: 1x, 2x, 4x, 8x, 16x")
-        logger.info("")
+        print()
+        print("=" * 70)
+        print("Multi-Scale Registration Pipeline")
+        print("=" * 70)
+        print(f"Base input directory: {base_input_dir}")
+        print(f"Base output directory: {base_output_dir}")
+        print(f"Scales: 1x, 2x, 4x, 8x, 16x")
+        print()
     
     # Run registration for each scale (up to max_scale)
     for scale_factor, width, height, input_dir_suffix, output_dir_suffix in scales:
         # Skip scales larger than max_scale
         if scale_factor > max_scale:
             if verbose:
-                logger.info(f"[SKIP] Scale {scale_factor}x exceeds max_scale={max_scale}")
+                print(f"[SKIP] Scale {scale_factor}x exceeds max_scale={max_scale}")
             continue
         
         input_dir = base_input_dir / input_dir_suffix
         output_dir = base_output_dir / output_dir_suffix
         
         if not input_dir.exists():
-            logger.warning(f"[SKIP] Input directory not found: {input_dir}")
-            logger.warning(f"       Run generate_multi_scale_test_images first")
+            if verbose:
+                print(f"[SKIP] Input directory not found: {input_dir}")
+                print(f"       Run generate_multi_scale_test_images first")
+            logger.warning(f"Input directory not found: {input_dir}")
             continue
         
         try:
@@ -293,13 +297,14 @@ def generate_multi_scale_report(
     combined_report = PerformanceMonitor.generate_multi_run_report(runs)
     
     if verbose:
-        logger.info("=" * 70)
-        logger.info("Multi-Scale Registration Complete!")
-        logger.info("=" * 70)
-        logger.info(f"Successfully processed {len(runs)} scales:")
+        print()
+        print("=" * 70)
+        print("Multi-Scale Registration Complete!")
+        print("=" * 70)
+        print(f"Successfully processed {len(runs)} scales:")
         for run in runs:
-            logger.info(f"  {run['scale_factor']}x: {run['image_size']['width']}×{run['image_size']['height']} pixels")
-        logger.info("")
+            print(f"  {run['scale_factor']}x: {run['image_size']['width']}×{run['image_size']['height']} pixels")
+        print()
     
     return combined_report
 
@@ -454,7 +459,10 @@ Examples:
         with open(report_path, 'w') as f:
             json.dump(combined_report, f, indent=2)
         
-        logger.info(f"Combined report saved to: {report_path}")
+        if args.verbose:
+            print(f"\n[OK] Combined report saved to: {report_path}")
+        else:
+            logger.info(f"Combined report saved to: {report_path}")
         
         return 0
     except Exception as e:
