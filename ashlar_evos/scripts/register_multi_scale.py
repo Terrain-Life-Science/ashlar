@@ -117,7 +117,7 @@ def run_registration_for_scale(
         logger.info("")
     
     # Use adaptive pyramid level if image_size is provided
-    # The pipeline will auto-configure, but we can also calculate it here for reporting
+    # Calculate optimal level BEFORE creating pipeline to avoid validation errors
     actual_coarse_level = coarse_level
     if image_size is not None:
         try:
@@ -135,13 +135,13 @@ def run_registration_for_scale(
                 logger.info("")
     
     # Create pipeline with scale metadata
-    # Note: Pipeline will auto-configure pyramid level if image_size is provided
+    # Use the calculated optimal level to avoid validation errors
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
         reference_idx=0,
         dapi_channel=0,
         pixel_size=pixel_size,
-        coarse_pyramid_level=coarse_level,  # Will be overridden by auto-config if image_size provided
+        coarse_pyramid_level=actual_coarse_level,  # Use calculated optimal level
         tile_size=tile_size,
         tile_overlap=tile_overlap,
         transform_type=transform_type,
