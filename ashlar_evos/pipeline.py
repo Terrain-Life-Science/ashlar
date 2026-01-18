@@ -265,8 +265,23 @@ class EvosRegistrationPipeline:
                 if self.verbose:
                     self._print(f"Auto-configured pyramid level: {optimal_level} "
                                f"(based on image size {image_size['width']}×{image_size['height']})")
+                
+                # Additional validation: for large images, ensure level 3 is used
+                image_dimension = max(image_size['width'], image_size['height'])
+                if image_dimension >= 16384 and optimal_level < 3:
+                    self._print(
+                        f"WARNING: Large image ({image_dimension}×{image_dimension}) will use "
+                        f"pyramid level {optimal_level} instead of recommended level 3. "
+                        f"This may cause memory issues.",
+                        level='WARNING'
+                    )
+                
                 self.coarse_pyramid_level = optimal_level
             except Exception as e:
+                # Re-raise if it's a ValueError or RuntimeError (these indicate real problems)
+                if isinstance(e, (ValueError, RuntimeError)):
+                    raise
+                # For other exceptions, just warn
                 self._print(f"Could not auto-configure pyramid level: {e}", level='WARNING')
         
         # Detect large images and provide recommendations
