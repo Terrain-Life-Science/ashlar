@@ -98,8 +98,13 @@ def write_pyramidal_ometiff(output_path: Path,
                 predictor=True,
             )
             
+            # Free base level data immediately after writing to reduce memory usage
+            del base_level_data
+            
             # Generate and write pyramid levels incrementally
             if num_pyramid_levels > 1:
+                # Keep reference to channels for first pyramid level generation
+                # After generating level 1, we can free the original channels
                 current_level_channels = channels
                 
                 for level in range(1, num_pyramid_levels):
@@ -140,15 +145,19 @@ def write_pyramidal_ometiff(output_path: Path,
                     )
                     
                     # Update current level for next iteration (only keep what we need)
-                    # For memory efficiency, we can delete the previous level after downsampling
-                    # But we need to keep the current level for the next iteration
+                    # Free previous level channels before updating to reduce memory
+                    if level == 1:
+                        # After generating level 1, we can free the original base level channels
+                        del current_level_channels
+                    else:
+                        # For subsequent levels, free the previous level
+                        del current_level_channels
+                    
+                    # Update to current level for next iteration
                     current_level_channels = level_channels
                     
-                    # Free memory by explicitly deleting large arrays
+                    # Free level_data immediately after writing
                     del level_data
-                    if level > 1:
-                        # Can delete channels from 2 levels ago
-                        pass  # Python GC will handle this
         else:
             # For smaller images, use original approach (all levels in memory)
             # Generate pyramid levels with proper downsampling
