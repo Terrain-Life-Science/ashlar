@@ -564,3 +564,156 @@ def recommend_aws_instance_type(
             )
     
     return result
+
+
+def is_s3_path(path: str) -> bool:
+    """
+    Check if a path is an S3 path.
+    
+    Parameters
+    ----------
+    path : str
+        Path to check
+        
+    Returns
+    -------
+    bool
+        True if path is an S3 path (s3://bucket/key)
+    """
+    return isinstance(path, str) and path.startswith('s3://')
+
+
+def parse_s3_path(s3_path: str) -> Dict[str, str]:
+    """
+    Parse an S3 path into bucket and key components.
+    
+    Parameters
+    ----------
+    s3_path : str
+        S3 path in format s3://bucket/key
+        
+    Returns
+    -------
+    dict
+        Dictionary with 'bucket' and 'key' keys
+        Returns None values if path is invalid
+    """
+    if not is_s3_path(s3_path):
+        return {'bucket': None, 'key': None, 'valid': False}
+    
+    # Remove s3:// prefix
+    path_without_prefix = s3_path[5:]  # Remove 's3://'
+    
+    # Split into bucket and key
+    parts = path_without_prefix.split('/', 1)
+    bucket = parts[0] if parts else None
+    key = parts[1] if len(parts) > 1 else ''
+    
+    return {
+        'bucket': bucket,
+        'key': key,
+        'valid': bucket is not None
+    }
+
+
+def optimize_for_s3_paths(
+    file_paths: list,
+    check_bucket_exists: bool = False,
+    region: str = 'us-east-1'
+) -> Dict[str, any]:
+    """
+    Analyze file paths and provide S3 optimization recommendations.
+    
+    Parameters
+    ----------
+    file_paths : list
+        List of file paths (can be strings or Path objects)
+    check_bucket_exists : bool
+        Whether to check if S3 buckets exist (requires boto3)
+    region : str
+        AWS region for bucket checking (default: us-east-1)
+        
+    Returns
+    -------
+    dict
+        Dictionary with S3 analysis:
+        - has_s3_paths: Whether any paths are S3 paths
+        - s3_paths: List of S3 paths found
+        - local_paths: List of local paths found
+        - buckets: Set of S3 buckets found
+        - recommendations: List of optimization recommendations
+        - use_s3_transfer_acceleration: Whether to use S3 transfer acceleration
+    """
+    result = {
+        'has_s3_paths': False,
+        's3_paths': [],
+        'local_paths': [],
+        'buckets': set(),
+        'recommendations': [],
+        'use_s3_transfer_acceleration': False
+    }
+    
+    for path in file_paths:
+        path_str = str(path)
+        
+        if is_s3_path(path_str):
+            result['has_s3_paths'] = True
+            result['s3_paths'].append(path_str)
+            
+            # Parse S3 path
+            parsed = parse_s3_path(path_str)
+            if parsed['valid'] and parsed['bucket']:
+                result['buckets'].add(parsed['bucket'])
+        else:
+            result['local_paths'].append(path_str)
+    
+    # Convert buckets set to list for JSON serialization
+    result['buckets'] = list(result['buckets'])
+    
+    # Generate recommendations
+    if result['has_s3_paths']:
+        result['recommendations'].append(
+            'S3 paths detected. Consider using S3 transfer acceleration for large files.'
+        )
+        result['recommendations'].append(
+            'For large images (>10GB), consider using multipart uploads.'
+        )
+        
+        # Check if buckets exist (if requested and boto3 available)
+        if check_bucket_exists and AWS_AVAILABLE:
+            s3_client = boto3.client('s3', region_name=region)
+            existing_buckets = []
+            missing_buckets = []
+            
+            for bucket in result['buckets']:
+                try:
+                    s3_client.head_bucket(Bucket=bucket)
+                    existing_buckets.append(bucket)
+                except ClientError:
+                    missing_buckets.append(bucket)
+            
+            if missing_buckets:
+                result['recommendations'].append(
+                    f'Warning: Some S3 buckets may not exist or be inaccessible: {missing_buckets}'
+                )
+            
+            # Check for transfer acceleration
+            for bucket in existing_buckets:
+                try:
+                    accel_config = s3_client.get_bucket_accelerate_configuration(Bucket=bucket)
+                    if accel_config.get('Status') == 'Enabled':
+                        result['use_s3_transfer_acceleration'] = True
+                        result['recommendations'].append(
+                            f'S3 Transfer Acceleration is enabled for bucket: {bucket}'
+                        )
+                except ClientError:
+                    # Transfer acceleration not configured
+                    pass
+    
+    # Mixed paths recommendation
+    if result['has_s3_paths'] and result['local_paths']:
+        result['recommendations'].append(
+            'Mixed S3 and local paths detected. Consider using all S3 paths for better performance on AWS.'
+        )
+    
+    return result
