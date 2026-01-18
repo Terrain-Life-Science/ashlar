@@ -123,11 +123,15 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80),
             cx = np.random.randint(cell_size_range[1], w - cell_size_range[1]) + x0
             radius = np.random.randint(*cell_size_range)
             intensity = np.random.uniform(0.3, 1.0)
-            cell_positions = [(cy, cx, radius, intensity)]
+            # Directly add cell to image (no need to store in list)
+            radii.append(radius)
+            # Create circular cell mask in tile coordinates
+            mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+            img[mask] = np.maximum(img[mask], intensity)
     else:
         # Use pre-generated positions, but only render cells that intersect this tile
         # Check if cell center is within tile bounds (with margin for radius)
-        max_radius = cell_size_range[1] if cell_positions else 80
+        max_radius = cell_size_range[1]
         for cy, cx, radius, intensity in cell_positions:
             # Check if cell intersects this tile (with margin)
             if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
