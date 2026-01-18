@@ -3,15 +3,25 @@ Generate synthetic pyramidal OME-TIFF test images for registration testing.
 
 Creates 3 cycles with intentional shifts between them to test registration algorithms.
 Each cycle contains 3 channels: DAPI + 2 fluorescence channels.
+
+Optimizations for large images:
+- Channel-by-channel memory management (immediate uint16 conversion)
+- Efficient downsampling using skimage.transform.downscale_local_mean
+- Progress indicators for long-running operations
+- Error handling and recovery
+- Garbage collection to free memory promptly
 """
 
 import numpy as np
 import tifffile
 from scipy import ndimage
 from skimage import filters
+from skimage import transform
 import pathlib
 import argparse
 import sys
+import gc
+import time
 
 
 def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
@@ -146,6 +156,9 @@ def generate_synthetic_cycle(
     """
     Generate a synthetic pyramidal OME-TIFF cycle.
     
+    Optimized for large images with channel-by-channel memory management,
+    efficient downsampling, and error handling.
+    
     Parameters
     ----------
     output_path : str or Path
@@ -161,37 +174,92 @@ def generate_synthetic_cycle(
     num_pyramid_levels : int
         Number of pyramid levels to create
     """
+    # Convert output_path to Path for consistency
+    output_path = pathlib.Path(output_path)
     h, w = base_shape
+    
+    # Determine if this is a large image (for progress indicators)
+    is_large = h > 8192 or w > 8192
     
     print(f"Generating Cycle {cycle_num}...")
     print(f"  Base shape: {h} × {w} pixels")
     print(f"  Shift: ({shift[0]:.2f}, {shift[1]:.2f}) pixels")
     
-    # Create channels
-    # Channel 0: DAPI
-    dapi = create_dapi_channel((h, w))
-    
-    # Channel 1: Fluorescence 1 (cytoplasmic pattern)
-    fluo1 = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
-    
-    # Channel 2: Fluorescence 2 (membrane pattern)
-    fluo2 = create_fluorescence_channel((h, w), pattern_type='membrane')
-    
-    # Stack channels: (channels, height, width)
-    img_stack = np.stack([dapi, fluo1, fluo2], axis=0)
+    # Create channels with immediate uint16 conversion and memory cleanup
+    # This reduces peak memory from 12 bytes/pixel (3×float32) to 6 bytes/pixel (3×uint16)
+    try:
+        if is_large:
+            print("  Creating channels...")
+            start_time = time.time()
+        
+        # Channel 0: DAPI - convert immediately and free float32
+        dapi_float = create_dapi_channel((h, w))
+        dapi = (dapi_float * 65535).astype(np.uint16)
+        del dapi_float
+        gc.collect()
+        
+        # Channel 1: Fluorescence 1 - convert immediately and free float32
+        fluo1_float = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
+        fluo1 = (fluo1_float * 65535).astype(np.uint16)
+        del fluo1_float
+        gc.collect()
+        
+        # Channel 2: Fluorescence 2 - convert immediately and free float32
+        fluo2_float = create_fluorescence_channel((h, w), pattern_type='membrane')
+        fluo2 = (fluo2_float * 65535).astype(np.uint16)
+        del fluo2_float
+        gc.collect()
+        
+        if is_large:
+            elapsed = time.time() - start_time
+            print(f"    Channels created in {elapsed:.2f} seconds")
+        
+        # Stack channels: (channels, height, width)
+        img_stack = np.stack([dapi, fluo1, fluo2], axis=0)
+        del dapi, fluo1, fluo2  # Free individual channel arrays
+        gc.collect()
+        
+    except MemoryError as e:
+        print(f"  ERROR: Out of memory during channel creation: {e}")
+        print(f"  Try reducing image size or closing other applications.")
+        raise
+    except Exception as e:
+        print(f"  ERROR: Failed to create channels: {e}")
+        raise
     
     # Apply shift to all channels (simulating cycle-to-cycle misalignment)
     if shift != (0.0, 0.0):
-        shifted_stack = np.zeros_like(img_stack)
-        for c in range(3):
-            shifted_stack[c] = apply_shift(img_stack[c], shift[0], shift[1])
-        img_stack = shifted_stack
+        try:
+            if is_large:
+                print(f"  Applying shift (dx={shift[0]:.2f}, dy={shift[1]:.2f}) pixels...")
+                start_time = time.time()
+            
+            shifted_stack = np.zeros_like(img_stack, dtype=np.uint16)
+            for c in range(3):
+                # Convert to float64 for shift, then clip and convert back to uint16
+                temp_float = img_stack[c].astype(np.float64) / 65535.0
+                shifted_float = apply_shift(temp_float, shift[0], shift[1])
+                shifted_stack[c] = np.clip(shifted_float * 65535.0, 0, 65535).astype(np.uint16)
+                del temp_float, shifted_float
+            
+            img_stack = shifted_stack
+            del shifted_stack
+            gc.collect()
+            
+            if is_large:
+                elapsed = time.time() - start_time
+                print(f"    Shift applied in {elapsed:.2f} seconds")
+                
+        except MemoryError as e:
+            print(f"  ERROR: Out of memory during shift application: {e}")
+            print(f"  Try reducing image size or closing other applications.")
+            raise
+        except Exception as e:
+            print(f"  ERROR: Failed to apply shift: {e}")
+            raise
     
-    # Convert to 16-bit
-    img_stack = (img_stack * 65535).astype(np.uint16)
-    
-    # Create pyramid levels
-    # Each level is 2x smaller than the previous level (not 4x per iteration)
+    # Create pyramid levels using efficient downsampling
+    # Each level is 2x smaller than the previous level
     print(f"  Creating {num_pyramid_levels} pyramid levels...")
     pyramid_levels = []
     
@@ -202,37 +270,47 @@ def generate_synthetic_cycle(
     
     # Generate subsequent levels by downsampling from previous level
     for level in range(1, num_pyramid_levels):
-        # Downsample each channel from previous level (2x smaller than previous)
-        level_channels = []
-        for c in range(3):
-            temp = current_level[c].astype(np.float32)
-            # Downsample by 2 in rows (2x reduction in height)
-            # Handle odd dimensions by trimming to match sizes
-            even_rows = temp[::2, :]
-            odd_rows = temp[1::2, :]
-            # Trim to match smaller size if dimensions are odd
-            min_rows = min(even_rows.shape[0], odd_rows.shape[0])
-            temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
+        try:
+            if is_large:
+                level_start = time.time()
             
-            # Downsample by 2 in columns (2x reduction in width)
-            # Handle odd dimensions by trimming to match sizes
-            even_cols = temp[:, ::2]
-            odd_cols = temp[:, 1::2]
-            # Trim to match smaller size if dimensions are odd
-            min_cols = min(even_cols.shape[1], odd_cols.shape[1])
-            temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
-            level_channels.append(temp.astype(np.uint16))
-        
-        # Stack channels: (C, Y, X)
-        level_img = np.stack(level_channels, axis=0)
-        
-        pyramid_levels.append(level_img)
-        print(f"    Level {level}: {level_img.shape}")
-        
-        # Update current level for next iteration
-        current_level = level_img
+            # Use efficient downsampling with skimage.transform.downscale_local_mean
+            # This is faster and more memory-efficient than manual downsampling
+            level_channels = []
+            for c in range(3):
+                # Convert to float32 for downsampling, then back to uint16
+                temp_float = current_level[c].astype(np.float32)
+                # Downsample by factor of 2 in both dimensions
+                downsampled = transform.downscale_local_mean(temp_float, (2, 2))
+                level_channels.append(downsampled.astype(np.uint16))
+                del temp_float, downsampled
+            
+            # Stack channels: (C, Y, X)
+            level_img = np.stack(level_channels, axis=0)
+            del level_channels
+            gc.collect()
+            
+            pyramid_levels.append(level_img)
+            
+            if is_large:
+                elapsed = time.time() - level_start
+                print(f"    Level {level}: {level_img.shape} (downsampled in {elapsed:.2f} seconds)")
+            else:
+                print(f"    Level {level}: {level_img.shape}")
+            
+            # Update current level for next iteration
+            current_level = level_img
+            
+        except MemoryError as e:
+            print(f"  ERROR: Out of memory creating pyramid level {level}: {e}")
+            print(f"  Partial file may have been created. Try reducing image size.")
+            raise
+        except Exception as e:
+            print(f"  ERROR: Failed to create pyramid level {level}: {e}")
+            print(f"  Partial file may have been created.")
+            raise
     
-    # Write pyramidal OME-TIFF
+    # Write pyramidal OME-TIFF with error handling
     print(f"  Writing to {output_path}...")
     
     resolution_cm = 10000 / pixel_size  # pixels per centimeter
@@ -248,40 +326,66 @@ def generate_synthetic_cycle(
     
     tile_size = 1024
     
-    with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
-        # Write base level (Level 0)
-        tiff.write(
-            data=pyramid_levels[0],
-            metadata=metadata,
-            software="Synthetic Test Generator",
-            shape=pyramid_levels[0].shape,
-            subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
-            dtype=np.uint16,
-            tile=(tile_size, tile_size),
-            resolution=(resolution_cm, resolution_cm),
-            resolutionunit="centimeter",
-            photometric="minisblack",
-            compression="adobe_deflate",
-            predictor=True,
-        )
+    try:
+        with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
+            # Write base level (Level 0)
+            tiff.write(
+                data=pyramid_levels[0],
+                metadata=metadata,
+                software="Synthetic Test Generator",
+                shape=pyramid_levels[0].shape,
+                subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
+                dtype=np.uint16,
+                tile=(tile_size, tile_size),
+                resolution=(resolution_cm, resolution_cm),
+                resolutionunit="centimeter",
+                photometric="minisblack",
+                compression="adobe_deflate",
+                predictor=True,
+            )
+            
+            # Write pyramid levels (Level 1, 2, 3, ...)
+            if num_pyramid_levels > 1:
+                for level in range(1, num_pyramid_levels):
+                    try:
+                        level_tile_size = min(tile_size, pyramid_levels[level].shape[1], 
+                                             pyramid_levels[level].shape[2])
+                        tiff.write(
+                            data=pyramid_levels[level],
+                            shape=pyramid_levels[level].shape,
+                            subfiletype=1,
+                            dtype=np.uint16,
+                            tile=(level_tile_size, level_tile_size),
+                            compression="adobe_deflate",
+                            predictor=True,
+                        )
+                    except MemoryError as e:
+                        print(f"  ERROR: Out of memory creating pyramid level {level}: {e}")
+                        print(f"  Partial file may have been created. Try reducing image size.")
+                        raise
+                    except Exception as e:
+                        print(f"  ERROR: Failed to create pyramid level {level}: {e}")
+                        print(f"  Partial file may have been created.")
+                        raise
         
-        # Write pyramid levels (Level 1, 2, 3, ...)
-        if num_pyramid_levels > 1:
-            for level in range(1, num_pyramid_levels):
-                level_tile_size = min(tile_size, pyramid_levels[level].shape[1], 
-                                     pyramid_levels[level].shape[2])
-                tiff.write(
-                    data=pyramid_levels[level],
-                    shape=pyramid_levels[level].shape,
-                    subfiletype=1,
-                    dtype=np.uint16,
-                    tile=(level_tile_size, level_tile_size),
-                    compression="adobe_deflate",
-                    predictor=True,
-                )
-    
-    print(f"  [OK] Complete: {output_path}")
-    print()
+        print(f"  [OK] Complete: {output_path}")
+        print()
+        
+    except (IOError, OSError) as e:
+        print(f"  ERROR: Failed to write file: {e}")
+        print(f"  Check disk space and write permissions.")
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        print(f"  ERROR: Unexpected error during file writing: {e}")
+        try:
+            output_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def main(argv=sys.argv):
@@ -319,7 +423,7 @@ Examples:
         nargs=2,
         metavar=('HEIGHT', 'WIDTH'),
         default=[2048, 2048],
-        help='Base image size in pixels (default: 2048 2048)'
+        help='Base image size in pixels (default: 2048 2048). Supports large images up to 32768x32768 pixels. Requires sufficient RAM for large sizes.'
     )
     
     parser.add_argument(
