@@ -440,6 +440,10 @@ def generate_channel_tiled(full_shape, channel_type, tile_size=4096,
     total_tiles = ((h + step - 1) // step) * ((w + step - 1) // step)
     tile_count = 0
     
+    # Show progress bar for tiled processing
+    channel_name = channel_type.replace('_', ' ').title()
+    print(f"    Generating {channel_name} channel...")
+    
     for y0 in range(0, h, step):
         for x0 in range(0, w, step):
             y1 = min(y0 + step, h)
@@ -471,9 +475,10 @@ def generate_channel_tiled(full_shape, channel_type, tile_size=4096,
             del tile
             tile_count += 1
             
-            # Progress indicator for very large images
-            if (h > 16384 or w > 16384) and tile_count % 10 == 0:
-                print(f"    Generated {tile_count}/{total_tiles} tiles...")
+            # Update progress bar
+            print_progress_bar(tile_count, total_tiles, 
+                             prefix=f"      ", 
+                             suffix=f" ({tile_count}/{total_tiles} tiles)")
             
             gc.collect()
     
@@ -646,23 +651,29 @@ def generate_synthetic_cycle(
             gc.collect()
         else:
             # Use original in-memory generation for small images (backward compatibility)
+            print("    Generating DAPI channel...", end='', flush=True)
             # Channel 0: DAPI - convert to uint16 immediately and free float32
             dapi_float = create_dapi_channel((h, w))
             dapi = (dapi_float * 65535).astype(np.uint16)
             del dapi_float
             gc.collect()
+            print(" ✓")
             
+            print("    Generating Fluorescence 1 channel...", end='', flush=True)
             # Channel 1: Fluorescence 1 (cytoplasmic pattern) - convert immediately
             fluo1_float = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
             fluo1 = (fluo1_float * 65535).astype(np.uint16)
             del fluo1_float
             gc.collect()
+            print(" ✓")
             
+            print("    Generating Fluorescence 2 channel...", end='', flush=True)
             # Channel 2: Fluorescence 2 (membrane pattern) - convert immediately
             fluo2_float = create_fluorescence_channel((h, w), pattern_type='membrane')
             fluo2 = (fluo2_float * 65535).astype(np.uint16)
             del fluo2_float
             gc.collect()
+            print(" ✓")
     except MemoryError as e:
         print(f"  ERROR: Out of memory during channel creation: {e}")
         if not use_tiled:
@@ -691,7 +702,12 @@ def generate_synthetic_cycle(
             start_time = time.time()
         try:
             shifted_stack = np.zeros_like(img_stack, dtype=np.uint16)
+            channel_names = ['DAPI', 'Fluorescence 1', 'Fluorescence 2']
             for c in range(3):
+                # Show progress for shift application
+                if is_large:
+                    print(f"    Shifting {channel_names[c]}...", end='', flush=True)
+                
                 # Convert to float64 for shift, then clip and convert back to uint16
                 # Note: shift tuple is (dy, dx) where shift[0]=dy (row), shift[1]=dx (col)
                 # apply_shift expects (dx, dy), so we pass (shift[1], shift[0])
@@ -700,7 +716,10 @@ def generate_synthetic_cycle(
                 shifted_float = apply_shift(temp_float, shift[1], shift[0])
                 shifted_stack[c] = np.clip(shifted_float * 65535.0, 0, 65535).astype(np.uint16)
                 del temp_float, shifted_float
-            gc.collect()
+                
+                if is_large:
+                    print(" ✓")
+                gc.collect()
             
             img_stack = shifted_stack
             del shifted_stack
@@ -771,11 +790,16 @@ def generate_synthetic_cycle(
                     # Add progress indicator for large images
                     if is_large:
                         level_start = time.time()
+                        print(f"    Level {level}: ", end='', flush=True)
                     
                     # Downsample each channel from previous level (2x smaller than previous)
                     # Use optimized downscale_local_mean (faster than manual averaging)
                     level_channels = []
                     for c in range(3):
+                        # Show progress for each channel
+                        if is_large:
+                            print(f"Channel {c+1}...", end=' ', flush=True)
+                        
                         # downscale_local_mean handles odd dimensions automatically
                         temp_float = current_level[c].astype(np.float32)
                         downsampled = downscale_local_mean(
@@ -792,7 +816,7 @@ def generate_synthetic_cycle(
                     
                     if is_large:
                         elapsed = time.time() - level_start
-                        print(f"    Level {level}: {level_img.shape} (downsampled in {elapsed:.2f} seconds)")
+                        print(f"{level_img.shape} ({elapsed:.2f}s)")
                     else:
                         print(f"    Level {level}: {level_img.shape}")
                     
