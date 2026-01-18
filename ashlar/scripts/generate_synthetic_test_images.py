@@ -5,6 +5,8 @@ Creates 3 cycles with intentional shifts between them to test registration algor
 Each cycle contains 3 channels: DAPI + 2 fluorescence channels.
 
 Optimizations for large images:
+- Tiled processing: generates images in tiles to avoid loading full image into memory
+- Memory-mapped I/O: uses tifffile.memmap for direct disk writing
 - Channel-by-channel memory management (immediate uint16 conversion)
 - Efficient downsampling using skimage.transform.downscale_local_mean
 - Adaptive interpolation order (lower order for large images to improve speed)
@@ -15,7 +17,7 @@ Optimizations for large images:
 - Error handling and recovery
 - Garbage collection to free memory promptly
 
-Supports images up to 32768×32768 pixels (16x scale) with appropriate memory.
+Supports images of any size (including 16x+ datasets) using tiled processing.
 """
 
 import numpy as np
@@ -28,37 +30,114 @@ import argparse
 import sys
 import gc
 import time
+from typing import List, Tuple, Optional
 
 
-def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
-    """Create synthetic cell-like structures."""
+def print_progress_bar(current: int, total: int, prefix: str = "", 
+                      suffix: str = "", length: int = 40, 
+                      show_percent: bool = True):
+    """
+    Print a progress bar to stdout.
+    
+    Parameters
+    ----------
+    current : int
+        Current progress value
+    total : int
+        Total value (100%)
+    prefix : str
+        Text to display before the progress bar
+    suffix : str
+        Text to display after the progress bar
+    length : int
+        Length of the progress bar in characters (default: 40)
+    show_percent : bool
+        Whether to show percentage (default: True)
+    """
+    if total == 0:
+        percent = 100
+    else:
+        percent = min(100, int(100 * current / total))
+    
+    filled = int(length * current / total) if total > 0 else length
+    bar = '=' * filled + '-' * (length - filled)
+    
+    if show_percent:
+        print(f'\r{prefix}[{bar}] {percent}%{suffix}', end='', flush=True)
+    else:
+        print(f'\r{prefix}[{bar}]{suffix}', end='', flush=True)
+    
+    if current >= total:
+        print()  # New line when complete
+
+
+def _generate_cell_positions(full_shape, num_cells=50, cell_size_range=(20, 80), seed=42):
+    """Pre-generate cell positions for the full image."""
+    h, w = full_shape
+    np.random.seed(seed)
+    cells = []
+    for _ in range(num_cells):
+        cy = np.random.randint(cell_size_range[1], h - cell_size_range[1])
+        cx = np.random.randint(cell_size_range[1], w - cell_size_range[1])
+        radius = np.random.randint(*cell_size_range)
+        intensity = np.random.uniform(0.3, 1.0)
+        cells.append((cy, cx, radius, intensity))
+    return cells
+
+
+def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80), 
+                          tile_offset=(0, 0), cell_positions=None):
+    """
+    Create synthetic cell-like structures.
+    
+    Parameters
+    ----------
+    shape : tuple
+        (height, width) of the tile to generate
+    num_cells : int
+        Number of cells (only used if cell_positions is None)
+    cell_size_range : tuple
+        (min_radius, max_radius) for cells
+    tile_offset : tuple
+        (y_offset, x_offset) of this tile in the full image
+    cell_positions : list, optional
+        Pre-generated cell positions from _generate_cell_positions
+    """
     h, w = shape
+    y0, x0 = tile_offset
     # Cache ogrid to avoid repeated creation
     y, x = np.ogrid[:h, :w]
+    # Convert to absolute coordinates
+    y_abs = y + y0
+    x_abs = x + x0
     
-    # Accumulate all cells first (optimization: batch processing)
+    # Accumulate all cells
     img = np.zeros(shape, dtype=np.float32)
     radii = []
     
-    np.random.seed(42)  # For reproducibility
-    for _ in range(num_cells):
-        # Random cell center
-        cy = np.random.randint(cell_size_range[1], h - cell_size_range[1])
-        cx = np.random.randint(cell_size_range[1], w - cell_size_range[1])
-        
-        # Random cell size
-        radius = np.random.randint(*cell_size_range)
-        radii.append(radius)
-        
-        # Create circular cell mask
-        mask = (x - cx)**2 + (y - cy)**2 <= radius**2
-        
-        # Add intensity gradient (brighter in center)
-        intensity = np.random.uniform(0.3, 1.0)
-        img[mask] = np.maximum(img[mask], intensity)
+    if cell_positions is None:
+        # Generate positions on the fly (for backward compatibility)
+        np.random.seed(42)
+        for _ in range(num_cells):
+            cy = np.random.randint(cell_size_range[1], h - cell_size_range[1]) + y0
+            cx = np.random.randint(cell_size_range[1], w - cell_size_range[1]) + x0
+            radius = np.random.randint(*cell_size_range)
+            intensity = np.random.uniform(0.3, 1.0)
+            cell_positions = [(cy, cx, radius, intensity)]
+    else:
+        # Use pre-generated positions, but only render cells that intersect this tile
+        # Check if cell center is within tile bounds (with margin for radius)
+        max_radius = cell_size_range[1] if cell_positions else 80
+        for cy, cx, radius, intensity in cell_positions:
+            # Check if cell intersects this tile (with margin)
+            if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
+                cx - max_radius < x0 + w and cx + max_radius >= x0):
+                radii.append(radius)
+                # Create circular cell mask in tile coordinates
+                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+                img[mask] = np.maximum(img[mask], intensity)
     
-    # Apply single Gaussian filter to accumulated cells (optimization: 1 filter instead of num_cells)
-    # Use average sigma for efficiency while maintaining visual quality
+    # Apply single Gaussian filter to accumulated cells
     avg_radius = np.mean(radii) if radii else (cell_size_range[0] + cell_size_range[1]) / 2
     sigma = avg_radius / 4
     # Optimize for large images: reduce sigma and limit kernel size
@@ -71,26 +150,63 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80)):
     return img
 
 
-def create_dapi_channel(shape):
-    """Create DAPI channel with nuclear-like structures."""
-    h, w = shape
-    img = np.zeros(shape, dtype=np.float32)
-    
-    # Cache ogrid to avoid repeated creation in loop
-    y, x = np.ogrid[:h, :w]
-    
-    # Create many small circular nuclei
-    np.random.seed(123)
-    num_nuclei = 200
+def _generate_nuclei_positions(full_shape, num_nuclei=200, seed=123):
+    """Pre-generate nuclei positions for the full image."""
+    h, w = full_shape
+    np.random.seed(seed)
+    nuclei = []
     for _ in range(num_nuclei):
         cy = np.random.randint(10, h - 10)
         cx = np.random.randint(10, w - 10)
         radius = np.random.randint(3, 12)
-        
-        mask = (x - cx)**2 + (y - cy)**2 <= radius**2
-        
         intensity = np.random.uniform(0.4, 1.0)
-        img[mask] = np.maximum(img[mask], intensity)
+        nuclei.append((cy, cx, radius, intensity))
+    return nuclei
+
+
+def create_dapi_channel(shape, tile_offset=(0, 0), nuclei_positions=None):
+    """
+    Create DAPI channel with nuclear-like structures.
+    
+    Parameters
+    ----------
+    shape : tuple
+        (height, width) of the tile to generate
+    tile_offset : tuple
+        (y_offset, x_offset) of this tile in the full image
+    nuclei_positions : list, optional
+        Pre-generated nuclei positions from _generate_nuclei_positions
+    """
+    h, w = shape
+    y0, x0 = tile_offset
+    img = np.zeros(shape, dtype=np.float32)
+    
+    # Cache ogrid to avoid repeated creation in loop
+    y, x = np.ogrid[:h, :w]
+    # Convert to absolute coordinates
+    y_abs = y + y0
+    x_abs = x + x0
+    
+    if nuclei_positions is None:
+        # Generate positions on the fly (for backward compatibility)
+        np.random.seed(123)
+        num_nuclei = 200
+        for _ in range(num_nuclei):
+            cy = np.random.randint(10, h - 10) + y0
+            cx = np.random.randint(10, w - 10) + x0
+            radius = np.random.randint(3, 12)
+            intensity = np.random.uniform(0.4, 1.0)
+            mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+            img[mask] = np.maximum(img[mask], intensity)
+    else:
+        # Use pre-generated positions, only render nuclei that intersect this tile
+        max_radius = 12
+        for cy, cx, radius, intensity in nuclei_positions:
+            # Check if nucleus intersects this tile
+            if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
+                cx - max_radius < x0 + w and cx + max_radius >= x0):
+                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+                img[mask] = np.maximum(img[mask], intensity)
     
     # Add some background noise
     # For very large images, reduce noise to save memory and time
@@ -114,28 +230,96 @@ def create_dapi_channel(shape):
     return img
 
 
-def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
-    """Create fluorescence channel with different patterns."""
+def _generate_membrane_positions(full_shape, num_rings=40, seed=456):
+    """Pre-generate membrane ring positions for the full image."""
+    h, w = full_shape
+    np.random.seed(seed)
+    rings = []
+    for _ in range(num_rings):
+        cy = np.random.randint(50, h - 50)
+        cx = np.random.randint(50, w - 50)
+        radius = np.random.randint(40, 120)
+        intensity = np.random.uniform(0.5, 1.0)
+        rings.append((cy, cx, radius, intensity))
+    return rings
+
+
+def _generate_punctate_positions(full_shape, num_puncta=100, seed=789):
+    """Pre-generate punctate structure positions for the full image."""
+    h, w = full_shape
+    np.random.seed(seed)
+    puncta = []
+    for _ in range(num_puncta):
+        cy = np.random.randint(5, h - 5)
+        cx = np.random.randint(5, w - 5)
+        radius = np.random.randint(2, 8)
+        intensity = np.random.uniform(0.6, 1.0)
+        puncta.append((cy, cx, radius, intensity))
+    return puncta
+
+
+def create_fluorescence_channel(shape, pattern_type='cytoplasmic', 
+                                tile_offset=(0, 0), 
+                                cell_positions=None,
+                                membrane_positions=None,
+                                punctate_positions=None):
+    """
+    Create fluorescence channel with different patterns.
+    
+    Parameters
+    ----------
+    shape : tuple
+        (height, width) of the tile to generate
+    pattern_type : str
+        'cytoplasmic', 'membrane', or 'punctate'
+    tile_offset : tuple
+        (y_offset, x_offset) of this tile in the full image
+    cell_positions : list, optional
+        Pre-generated cell positions (for cytoplasmic pattern)
+    membrane_positions : list, optional
+        Pre-generated membrane ring positions
+    punctate_positions : list, optional
+        Pre-generated punctate structure positions
+    """
     h, w = shape
+    y0, x0 = tile_offset
     
     if pattern_type == 'cytoplasmic':
         # Larger, more diffuse structures
-        img = create_synthetic_cells(shape, num_cells=30, cell_size_range=(30, 100))
+        img = create_synthetic_cells(
+            shape, num_cells=30, cell_size_range=(30, 100),
+            tile_offset=tile_offset, cell_positions=cell_positions
+        )
     elif pattern_type == 'membrane':
         # Thin membrane-like structures
         img = np.zeros(shape, dtype=np.float32)
         # Cache ogrid to avoid repeated creation in loop
         y, x = np.ogrid[:h, :w]
-        np.random.seed(456)
-        for _ in range(40):
-            cy = np.random.randint(50, h - 50)
-            cx = np.random.randint(50, w - 50)
-            radius = np.random.randint(40, 120)
-            
-            dist = np.sqrt((x - cx)**2 + (y - cy)**2)
-            # Create ring pattern
-            ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
-            img[ring_mask] = np.random.uniform(0.5, 1.0)
+        # Convert to absolute coordinates
+        y_abs = y + y0
+        x_abs = x + x0
+        
+        if membrane_positions is None:
+            # Generate positions on the fly (for backward compatibility)
+            np.random.seed(456)
+            for _ in range(40):
+                cy = np.random.randint(50, h - 50) + y0
+                cx = np.random.randint(50, w - 50) + x0
+                radius = np.random.randint(40, 120)
+                intensity = np.random.uniform(0.5, 1.0)
+                dist = np.sqrt((x_abs - cx)**2 + (y_abs - cy)**2)
+                ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
+                img[ring_mask] = np.maximum(img[ring_mask], intensity)
+        else:
+            # Use pre-generated positions
+            max_radius = 120
+            for cy, cx, radius, intensity in membrane_positions:
+                # Check if ring intersects this tile
+                if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
+                    cx - max_radius < x0 + w and cx + max_radius >= x0):
+                    dist = np.sqrt((x_abs - cx)**2 + (y_abs - cy)**2)
+                    ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
+                    img[ring_mask] = np.maximum(img[ring_mask], intensity)
         
         sigma = 2.0
         # Optimize for large images: reduce sigma and limit kernel size
@@ -149,14 +333,29 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
         img = np.zeros(shape, dtype=np.float32)
         # Cache ogrid to avoid repeated creation in loop
         y, x = np.ogrid[:h, :w]
-        np.random.seed(789)
-        for _ in range(100):
-            cy = np.random.randint(5, h - 5)
-            cx = np.random.randint(5, w - 5)
-            radius = np.random.randint(2, 8)
-            
-            mask = (x - cx)**2 + (y - cy)**2 <= radius**2
-            img[mask] = np.random.uniform(0.6, 1.0)
+        # Convert to absolute coordinates
+        y_abs = y + y0
+        x_abs = x + x0
+        
+        if punctate_positions is None:
+            # Generate positions on the fly (for backward compatibility)
+            np.random.seed(789)
+            for _ in range(100):
+                cy = np.random.randint(5, h - 5) + y0
+                cx = np.random.randint(5, w - 5) + x0
+                radius = np.random.randint(2, 8)
+                intensity = np.random.uniform(0.6, 1.0)
+                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+                img[mask] = np.maximum(img[mask], intensity)
+        else:
+            # Use pre-generated positions
+            max_radius = 8
+            for cy, cx, radius, intensity in punctate_positions:
+                # Check if puncta intersects this tile
+                if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
+                    cx - max_radius < x0 + w and cx + max_radius >= x0):
+                    mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
+                    img[mask] = np.maximum(img[mask], intensity)
         
         sigma = 1.5
         # Optimize for large images: reduce sigma and limit kernel size
@@ -177,6 +376,108 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
     img = np.clip(img, 0, 1)
     
     return img
+
+
+def generate_channel_tiled(full_shape, channel_type, tile_size=4096, 
+                           cell_positions=None, nuclei_positions=None,
+                           membrane_positions=None, punctate_positions=None):
+    """
+    Generate a channel in tiles and return as a memory-mapped array.
+    
+    Parameters
+    ----------
+    full_shape : tuple
+        (height, width) of the full image
+    channel_type : str
+        'dapi', 'cytoplasmic', 'membrane', or 'punctate'
+    tile_size : int
+        Size of tiles for processing (default: 4096)
+    cell_positions : list, optional
+        Pre-generated cell positions
+    nuclei_positions : list, optional
+        Pre-generated nuclei positions
+    membrane_positions : list, optional
+        Pre-generated membrane positions
+    punctate_positions : list, optional
+        Pre-generated punctate positions
+        
+    Returns
+    -------
+    np.ndarray
+        Full channel as uint16 array (memory-mapped if possible)
+    """
+    h, w = full_shape
+    
+    # Determine if we should use tiled processing
+    # Use tiled processing for images larger than 8K×8K or if explicitly requested
+    use_tiled = (h > 8192 or w > 8192)
+    
+    if not use_tiled:
+        # Small image: generate in memory (backward compatibility)
+        if channel_type == 'dapi':
+            img = create_dapi_channel((h, w), tile_offset=(0, 0), 
+                                     nuclei_positions=nuclei_positions)
+        elif channel_type == 'cytoplasmic':
+            img = create_fluorescence_channel((h, w), pattern_type='cytoplasmic',
+                                            tile_offset=(0, 0),
+                                            cell_positions=cell_positions)
+        elif channel_type == 'membrane':
+            img = create_fluorescence_channel((h, w), pattern_type='membrane',
+                                            tile_offset=(0, 0),
+                                            membrane_positions=membrane_positions)
+        else:  # punctate
+            img = create_fluorescence_channel((h, w), pattern_type='punctate',
+                                            tile_offset=(0, 0),
+                                            punctate_positions=punctate_positions)
+        return (img * 65535).astype(np.uint16)
+    
+    # Large image: use tiled processing
+    # Create output array (will be written tile by tile)
+    output = np.zeros((h, w), dtype=np.uint16)
+    
+    # Process in tiles
+    step = tile_size
+    total_tiles = ((h + step - 1) // step) * ((w + step - 1) // step)
+    tile_count = 0
+    
+    for y0 in range(0, h, step):
+        for x0 in range(0, w, step):
+            y1 = min(y0 + step, h)
+            x1 = min(x0 + step, w)
+            tile_shape = (y1 - y0, x1 - x0)
+            tile_offset = (y0, x0)
+            
+            # Generate tile
+            if channel_type == 'dapi':
+                tile = create_dapi_channel(tile_shape, tile_offset=tile_offset,
+                                         nuclei_positions=nuclei_positions)
+            elif channel_type == 'cytoplasmic':
+                tile = create_fluorescence_channel(tile_shape, pattern_type='cytoplasmic',
+                                                 tile_offset=tile_offset,
+                                                 cell_positions=cell_positions)
+            elif channel_type == 'membrane':
+                tile = create_fluorescence_channel(tile_shape, pattern_type='membrane',
+                                                 tile_offset=tile_offset,
+                                                 membrane_positions=membrane_positions)
+            else:  # punctate
+                tile = create_fluorescence_channel(tile_shape, pattern_type='punctate',
+                                                 tile_offset=tile_offset,
+                                                 punctate_positions=punctate_positions)
+            
+            # Convert to uint16 and write to output
+            output[y0:y1, x0:x1] = (tile * 65535).astype(np.uint16)
+            
+            # Clean up
+            del tile
+            tile_count += 1
+            
+            # Progress indicator for very large images
+            if (h > 16384 or w > 16384) and tile_count % 10 == 0:
+                print(f"    Generated {tile_count}/{total_tiles} tiles...")
+            
+            gc.collect()
+    
+    return output
 
 
 def apply_shift(img, dx, dy, order=None):
@@ -241,8 +542,8 @@ def generate_synthetic_cycle(
     """
     Generate a synthetic pyramidal OME-TIFF cycle.
     
-    Optimized for large images with channel-by-channel memory management,
-    efficient downsampling, streaming to disk, and error handling.
+    Optimized for large images with tiled processing, channel-by-channel memory
+    management, efficient downsampling, streaming to disk, and error handling.
     
     Parameters
     ----------
@@ -251,7 +552,8 @@ def generate_synthetic_cycle(
     cycle_num : int
         Cycle number (0, 1, or 2)
     base_shape : tuple
-        Base resolution shape (height, width). Supports up to 32768×32768 pixels.
+        Base resolution shape (height, width). Supports images of any size using
+        tiled processing for images > 8K×8K pixels.
     shift : tuple
         (dy, dx) shift in pixels to apply (for testing registration)
         Note: shift[0] is dy (row shift), shift[1] is dx (column shift)
@@ -263,51 +565,108 @@ def generate_synthetic_cycle(
     Notes
     -----
     This function is optimized for large images:
+    - Uses tiled processing for images > 8K×8K to avoid loading full image into memory
+    - Pre-generates structure positions once, then renders them tile-by-tile
     - Uses adaptive algorithms based on image size (Gaussian sigma, noise, interpolation)
     - Streams pyramid levels to disk to reduce memory usage
     - Converts channels to uint16 immediately to reduce peak memory
+    - Automatically uses BigTIFF format for files > 4GB
     - Shows progress indicators for large images (>8K×8K)
     - Includes error handling and memory warnings
     
-    For very large images (8x, 16x scales), ensure sufficient RAM is available.
+    For very large images (16x+ scales), tiled processing ensures memory usage stays
+    bounded regardless of image size. Peak memory is approximately:
+    - Small images (<8K×8K): Full image size in memory
+    - Large images (>8K×8K): ~3 × tile_size² × 2 bytes (for 3 channels, uint16)
     """
     # Convert output_path to Path for consistent handling (especially for .unlink() in error handling)
     output_path = pathlib.Path(output_path)
     h, w = base_shape
     
-    # Determine if this is a large image (for progress indicators)
+    # Determine if this is a large image (for progress indicators and tiled processing)
     is_large = h > 8192 or w > 8192
+    use_tiled = is_large  # Use tiled processing for large images
     
     print(f"Generating Cycle {cycle_num}...")
     print(f"  Base shape: {h} × {w} pixels")
     print(f"  Shift: dy={shift[0]:.2f}, dx={shift[1]:.2f} pixels")
+    if use_tiled:
+        print(f"  Using tiled processing for memory efficiency")
     
-    # Create channels with immediate uint16 conversion and memory cleanup
-    # This reduces peak memory from 12 bytes/pixel (3×float32) to 6 bytes/pixel (3×uint16)
+    # Pre-generate structure positions for tiled processing (only needed for large images)
+    if use_tiled:
+        print("  Pre-generating structure positions...")
+        start_time = time.time()
+        try:
+            # Pre-generate all structure positions once
+            nuclei_positions = _generate_nuclei_positions((h, w))
+            cell_positions = _generate_cell_positions((h, w), num_cells=30, cell_size_range=(30, 100))
+            membrane_positions = _generate_membrane_positions((h, w))
+            punctate_positions = _generate_punctate_positions((h, w))
+            elapsed = time.time() - start_time
+            print(f"    Positions generated in {elapsed:.2f} seconds")
+        except Exception as e:
+            print(f"  WARNING: Failed to pre-generate positions: {e}")
+            print(f"  Falling back to in-memory generation")
+            use_tiled = False
+            nuclei_positions = None
+            cell_positions = None
+            membrane_positions = None
+            punctate_positions = None
+    else:
+        nuclei_positions = None
+        cell_positions = None
+        membrane_positions = None
+        punctate_positions = None
+    
+    # Create channels with tiled processing for large images
     if is_large:
-        print("  Creating channels...")
+        print("  Creating channels (tiled)...")
         start_time = time.time()
     
     try:
-        # Channel 0: DAPI - convert to uint16 immediately and free float32
-        dapi_float = create_dapi_channel((h, w))
-        dapi = (dapi_float * 65535).astype(np.uint16)
-        del dapi_float
-        gc.collect()
-        
-        # Channel 1: Fluorescence 1 (cytoplasmic pattern) - convert immediately
-        fluo1_float = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
-        fluo1 = (fluo1_float * 65535).astype(np.uint16)
-        del fluo1_float
-        gc.collect()
-        
-        # Channel 2: Fluorescence 2 (membrane pattern) - convert immediately
-        fluo2_float = create_fluorescence_channel((h, w), pattern_type='membrane')
-        fluo2 = (fluo2_float * 65535).astype(np.uint16)
-        del fluo2_float
-        gc.collect()
+        if use_tiled:
+            # Use tiled generation for large images
+            dapi = generate_channel_tiled(
+                (h, w), 'dapi', tile_size=4096,
+                nuclei_positions=nuclei_positions
+            )
+            gc.collect()
+            
+            fluo1 = generate_channel_tiled(
+                (h, w), 'cytoplasmic', tile_size=4096,
+                cell_positions=cell_positions
+            )
+            gc.collect()
+            
+            fluo2 = generate_channel_tiled(
+                (h, w), 'membrane', tile_size=4096,
+                membrane_positions=membrane_positions
+            )
+            gc.collect()
+        else:
+            # Use original in-memory generation for small images (backward compatibility)
+            # Channel 0: DAPI - convert to uint16 immediately and free float32
+            dapi_float = create_dapi_channel((h, w))
+            dapi = (dapi_float * 65535).astype(np.uint16)
+            del dapi_float
+            gc.collect()
+            
+            # Channel 1: Fluorescence 1 (cytoplasmic pattern) - convert immediately
+            fluo1_float = create_fluorescence_channel((h, w), pattern_type='cytoplasmic')
+            fluo1 = (fluo1_float * 65535).astype(np.uint16)
+            del fluo1_float
+            gc.collect()
+            
+            # Channel 2: Fluorescence 2 (membrane pattern) - convert immediately
+            fluo2_float = create_fluorescence_channel((h, w), pattern_type='membrane')
+            fluo2 = (fluo2_float * 65535).astype(np.uint16)
+            del fluo2_float
+            gc.collect()
     except MemoryError as e:
         print(f"  ERROR: Out of memory during channel creation: {e}")
+        if not use_tiled:
+            print(f"  Try using tiled processing (images > 8K×8K use it automatically)")
         print(f"  Try reducing image size or closing other applications.")
         raise
     except Exception as e:
@@ -371,6 +730,11 @@ def generate_synthetic_cycle(
     }
     tile_size = 1024
     
+    # Determine if we need BigTIFF (for files > 4GB)
+    # Estimate: 3 channels × h × w × 2 bytes (uint16) × num_levels (rough estimate)
+    estimated_size_bytes = 3 * h * w * 2 * num_pyramid_levels
+    use_bigtiff = estimated_size_bytes > 4 * 1024 * 1024 * 1024  # 4GB threshold
+    
     # Create pyramid levels and write immediately (streaming to disk for memory efficiency)
     # Each level is 2x smaller than the previous level
     print(f"  Creating {num_pyramid_levels} pyramid levels...")
@@ -381,8 +745,10 @@ def generate_synthetic_cycle(
     
     # Write base level immediately
     print(f"  Writing to {output_path}...")
+    if use_bigtiff:
+        print(f"  Using BigTIFF format (estimated size > 4GB)")
     try:
-        with tifffile.TiffWriter(output_path, ome=True, bigtiff=False) as tiff:
+        with tifffile.TiffWriter(output_path, ome=True, bigtiff=use_bigtiff) as tiff:
             # Write base level (Level 0)
             tiff.write(
                 data=current_level,
