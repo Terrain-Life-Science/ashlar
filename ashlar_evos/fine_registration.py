@@ -386,6 +386,14 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     ref_path = ref_reader.filepath
     target_path = target_reader.filepath
     
+    # On Windows, close parent readers before spawning worker processes to avoid file locking
+    # The workers will create their own readers, and the finally block in pipeline.py
+    # will safely handle closing (idempotent close() method)
+    import sys
+    if sys.platform == 'win32':
+        ref_reader.close()
+        target_reader.close()
+    
     # Convert TileInfo objects to tuples for pickling
     tile_tuples = [(tile.y, tile.x, tile.height, tile.width, tile.tile_idx) 
                    for tile in grid]

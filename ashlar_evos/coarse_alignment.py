@@ -258,6 +258,11 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
     ref_dapi = read_pyramid_dapi(reference_file, level=pyramid_level, 
                                  dapi_channel=dapi_channel)
     
+    # Force cleanup of zarr references to release file handles
+    # This prevents Windows file locking issues when fine registration opens the same files
+    import gc
+    gc.collect()
+    
     # Align each target cycle to reference
     for i, target_file in enumerate(cycle_files):
         if i == reference_idx:

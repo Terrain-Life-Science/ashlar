@@ -168,6 +168,12 @@ def run_registration_for_scale(
     report['input_directory'] = str(input_dir)
     report['output_directory'] = str(output_dir)
     
+    # Clean up pipeline to free memory before processing next scale
+    # This is important for multi-scale runs to prevent memory accumulation
+    del pipeline
+    import gc
+    gc.collect()
+    
     if verbose:
         logger.info("")
         logger.info(f"[OK] {scale_factor}x scale registration complete")
