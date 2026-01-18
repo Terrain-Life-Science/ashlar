@@ -7,6 +7,9 @@ import pathlib
 import sys
 import glob
 from ashlar_evos.pipeline import EvosRegistrationPipeline
+from ashlar_evos.metadata import OMEMetadata
+from ashlar_evos.cloud_utils import suggest_cloud_parameters, estimate_memory_usage
+from ashlar_evos.logging_config import setup_logging, get_logger
 
 
 def main(argv=None):
@@ -119,7 +122,28 @@ Examples:
         help='Skip fine registration and use only coarse alignment with full-resolution DAPI'
     )
     
+    parser.add_argument(
+        '--cloud',
+        action='store_true',
+        help='Enable cloud optimizations (adaptive pyramid level, optimized workers)'
+    )
+    
+    parser.add_argument(
+        '--estimate-memory',
+        action='store_true',
+        help='Estimate memory usage and exit'
+    )
+    
     args = parser.parse_args(argv)
+    
+    # Set up logging
+    log_file = args.output_dir / 'registration.log' if args.output_dir else None
+    logger = setup_logging(
+        log_level='DEBUG' if not args.quiet else 'WARNING',
+        log_file=log_file,
+        verbose=not args.quiet
+    )
+    logger = get_logger('ashlar_evos.scripts.register_evos')
     
     # Expand glob patterns
     expanded_cycles = []
@@ -152,19 +176,81 @@ Examples:
     if args.reference < 0 or args.reference >= len(cycle_files):
         parser.error(f"Reference index {args.reference} out of range (0-{len(cycle_files)-1})")
     
+    # Get image size from first file for cloud optimizations
+    image_size = None
+    if args.cloud or args.estimate_memory:
+        try:
+            with OMEMetadata(cycle_files[0]) as meta:
+                shape = meta.shape_at_level(0)
+                image_size = {'width': shape[1], 'height': shape[0]}
+        except Exception as e:
+            logger.warning(f"Could not read image size: {e}")
+    
+    # Estimate memory if requested
+    if args.estimate_memory:
+        if image_size is None:
+            parser.error("Could not determine image size for memory estimation")
+        
+        import os
+        num_workers = args.num_workers or os.cpu_count() or 1
+        memory_est = estimate_memory_usage(
+            image_size['width'],
+            image_size['height'],
+            args.tile_size,
+            num_workers
+        )
+        logger.info("Memory Usage Estimation:")
+        logger.info(f"  Per tile: {memory_est['per_tile_mb']:.1f} MB")
+        logger.info(f"  Per worker: {memory_est['per_worker_mb']:.1f} MB")
+        logger.info(f"  Parallel workers ({num_workers}): {memory_est['parallel_workers_mb']:.1f} MB")
+        logger.info(f"  Base memory: {memory_est['base_mb']:.1f} MB")
+        logger.info(f"  Total estimated: {memory_est['total_estimated_mb']:.1f} MB")
+        
+        if args.cloud:
+            cloud_params = suggest_cloud_parameters(
+                image_size['width'],
+                image_size['height'],
+                cycle_files[0],
+                args.num_workers
+            )
+            logger.info("\nCloud Optimization Recommendations:")
+            logger.info(f"  Tile size: {cloud_params['tile_size']}")
+            logger.info(f"  Tile overlap: {cloud_params['tile_overlap']}")
+            logger.info(f"  Estimated tiles: {cloud_params['estimated_tiles']}")
+            logger.info(f"  Optimal workers: {cloud_params['optimal_workers']}")
+            logger.info(f"  Coarse pyramid level: {cloud_params['coarse_pyramid_level']}")
+            logger.info(f"  GPU recommended: {cloud_params['gpu_recommended']}")
+        
+        return 0
+    
+    # Use cloud optimizations if requested
+    coarse_level = args.coarse_level
+    if args.cloud and image_size is not None:
+        from ashlar_evos.cloud_utils import calculate_optimal_pyramid_level
+        try:
+            coarse_level = calculate_optimal_pyramid_level(
+                image_size['width'],
+                image_size['height'],
+                cycle_files[0]
+            )
+            logger.info(f"Cloud optimization: Using adaptive pyramid level {coarse_level}")
+        except Exception as e:
+            logger.warning(f"Could not calculate optimal pyramid level: {e}")
+    
     # Create pipeline
     pipeline = EvosRegistrationPipeline(
         cycle_files=cycle_files,
         reference_idx=args.reference,
         dapi_channel=args.dapi_channel,
         pixel_size=args.pixel_size,
-        coarse_pyramid_level=args.coarse_level,
+        coarse_pyramid_level=coarse_level,  # Use computed level (may be optimized if --cloud)
         tile_size=args.tile_size,
         tile_overlap=args.tile_overlap,
         transform_type=args.transform_type,
         num_workers=args.num_workers,
         verbose=not args.quiet,
-        coarse_only=args.coarse_only
+        coarse_only=args.coarse_only,
+        image_size=image_size
     )
     
     # Run pipeline
@@ -174,18 +260,14 @@ Examples:
             report_path=args.report
         )
         
-        if not args.quiet:
-            print()
-            print("Output files:")
-            for i, output_file in output_files.items():
-                print(f"  Cycle {i}: {output_file}")
+        logger.info("")
+        logger.info("Output files:")
+        for i, output_file in output_files.items():
+            logger.info(f"  Cycle {i}: {output_file}")
         
         return 0
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        if not args.quiet:
-            import traceback
-            traceback.print_exc()
+        logger.error(f"Registration failed: {e}", exc_info=True)
         return 1
 
 

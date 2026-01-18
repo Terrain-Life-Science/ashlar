@@ -35,7 +35,8 @@ def read_pyramid_dapi(filepath: Path, level: int = 3, dapi_channel: int = 0) -> 
 
 
 def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray, 
-                 filter_sigma: float = 0.0, upsample: int = 1) -> Tuple[np.ndarray, float]:
+                 filter_sigma: float = 0.0, upsample: int = 1,
+                 max_error: float = 10.0, warn_on_high_error: bool = True) -> Tuple[np.ndarray, float]:
     """
     Align two DAPI images using phase correlation.
     
@@ -52,13 +53,18 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
         Gaussian filter sigma for preprocessing (default: 0.0 = no filter)
     upsample : int
         Upsampling factor for sub-pixel accuracy (default: 1, use 10 for sub-pixel)
+    max_error : float
+        Maximum acceptable alignment error (default: 10.0)
+        If error exceeds this, a warning is issued
+    warn_on_high_error : bool
+        If True, issue warning when alignment error is high (default: True)
         
     Returns
     -------
     tuple
         (shift, error) where shift is (dy, dx) in pixels and error is alignment error
     """
-    # Import ashlar's registration utilities
+    import warnings
     from ashlar import utils
     
     # Ensure images are same size (should be for same pyramid level)
@@ -68,19 +74,58 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
         )
     
     # Use ashlar's phase correlation with specified upsampling
-    shift, error = utils.register(reference_dapi, target_dapi, 
-                                  sigma=filter_sigma, upsample=upsample)
+    try:
+        shift, error = utils.register(reference_dapi, target_dapi, 
+                                    sigma=filter_sigma, upsample=upsample)
+    except Exception as e:
+        # Phase correlation failed - return zero shift with high error
+        error_msg = (
+            f"Phase correlation failed: {e}\n"
+            f"  This may indicate poor image quality or excessive misalignment.\n"
+            f"  Returning zero shift with high error value."
+        )
+        if warn_on_high_error:
+            warnings.warn(error_msg, UserWarning)
+        shift = np.array([0.0, 0.0], dtype=np.float64)
+        error = 100.0  # High error value to indicate failure
+        return shift, error
+    
+    # Check for invalid results (NaN or Inf)
+    if np.any(np.isnan(shift)) or np.any(np.isinf(shift)):
+        error_msg = (
+            f"Phase correlation returned invalid shift: {shift}\n"
+            f"  This may indicate poor image quality or excessive misalignment.\n"
+            f"  Returning zero shift with high error value."
+        )
+        if warn_on_high_error:
+            warnings.warn(error_msg, UserWarning)
+        shift = np.array([0.0, 0.0], dtype=np.float64)
+        error = 100.0
+        return shift, error
     
     # Convert shift to numpy array and error to float
     shift = np.array(shift, dtype=np.float64)
     error = float(error)
+    
+    # Warn if error is high (poor alignment quality)
+    if warn_on_high_error and error > max_error:
+        warnings.warn(
+            f"High alignment error detected: {error:.4f} (threshold: {max_error})\n"
+            f"  This may indicate poor alignment quality. Consider:\n"
+            f"  - Using a different pyramid level\n"
+            f"  - Checking image quality\n"
+            f"  - Verifying images are from the same sample",
+            UserWarning
+        )
     
     return shift, error
 
 
 def coarse_align_cycle(reference_file: Path, target_file: Path,
                       pyramid_level: int = 3, dapi_channel: int = 0,
-                      filter_sigma: float = 0.0, upsample: int = 1) -> Tuple[np.ndarray, float]:
+                      filter_sigma: float = 0.0, upsample: int = 1,
+                      fallback_on_failure: bool = True,
+                      max_error: float = 10.0) -> Tuple[np.ndarray, float]:
     """
     Coarse align a target cycle to reference cycle.
     
@@ -99,21 +144,71 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
         Gaussian filter sigma for preprocessing
     upsample : int
         Upsampling factor for sub-pixel accuracy (default: 1, use 10 for sub-pixel)
+    fallback_on_failure : bool
+        If True, try lower pyramid level on failure (default: True)
+    max_error : float
+        Maximum acceptable alignment error (default: 10.0)
         
     Returns
     -------
     tuple
         (shift, error) where shift is (dy, dx) in pixels at full resolution
     """
+    import warnings
+    
     # Read DAPI channels from pyramid level
-    ref_dapi = read_pyramid_dapi(reference_file, level=pyramid_level, 
-                                 dapi_channel=dapi_channel)
-    target_dapi = read_pyramid_dapi(target_file, level=pyramid_level, 
-                                    dapi_channel=dapi_channel)
+    try:
+        ref_dapi = read_pyramid_dapi(reference_file, level=pyramid_level, 
+                                     dapi_channel=dapi_channel)
+        target_dapi = read_pyramid_dapi(target_file, level=pyramid_level, 
+                                        dapi_channel=dapi_channel)
+    except Exception as e:
+        if fallback_on_failure and pyramid_level > 0:
+            # Try lower pyramid level (higher resolution)
+            warnings.warn(
+                f"Failed to read pyramid level {pyramid_level}, trying level {pyramid_level - 1}: {e}",
+                UserWarning
+            )
+            return coarse_align_cycle(
+                reference_file, target_file,
+                pyramid_level=pyramid_level - 1,
+                dapi_channel=dapi_channel,
+                filter_sigma=filter_sigma,
+                upsample=upsample,
+                fallback_on_failure=False,  # Don't recurse further
+                max_error=max_error
+            )
+        else:
+            raise
     
     # Perform coarse alignment
     shift, error = coarse_align(ref_dapi, target_dapi, 
-                               filter_sigma=filter_sigma, upsample=upsample)
+                               filter_sigma=filter_sigma, upsample=upsample,
+                               max_error=max_error)
+    
+    # If error is very high and fallback is enabled, try lower pyramid level
+    if fallback_on_failure and error > max_error * 2 and pyramid_level > 0:
+        warnings.warn(
+            f"High alignment error ({error:.4f}) at pyramid level {pyramid_level}, "
+            f"trying lower level {pyramid_level - 1}",
+            UserWarning
+        )
+        try:
+            fallback_shift, fallback_error = coarse_align_cycle(
+                reference_file, target_file,
+                pyramid_level=pyramid_level - 1,
+                dapi_channel=dapi_channel,
+                filter_sigma=filter_sigma,
+                upsample=upsample,
+                fallback_on_failure=False,  # Don't recurse further
+                max_error=max_error
+            )
+            # Use fallback if it's better
+            if fallback_error < error:
+                return fallback_shift, fallback_error
+        except Exception:
+            # Fallback failed, use original result
+            pass
     
     # Scale shift to full resolution
     # Pyramid level N is downsampled by 2^N
@@ -125,7 +220,9 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
 
 def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
                            pyramid_level: int = 3, dapi_channel: int = 0,
-                           filter_sigma: float = 0.0, upsample: int = 1) -> Dict[int, Tuple[np.ndarray, float]]:
+                           filter_sigma: float = 0.0, upsample: int = 1,
+                           fallback_on_failure: bool = True,
+                           max_error: float = 10.0) -> Dict[int, Tuple[np.ndarray, float]]:
     """
     Coarse align all cycles to reference cycle.
     
@@ -169,14 +266,53 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
         target_dapi = read_pyramid_dapi(target_file, level=pyramid_level, 
                                        dapi_channel=dapi_channel)
         
-        # Perform coarse alignment
-        shift, error = coarse_align(ref_dapi, target_dapi, 
-                                   filter_sigma=filter_sigma, upsample=upsample)
-        
-        # Scale shift to full resolution
-        scale_factor = 2 ** pyramid_level
-        shift_full_res = shift * scale_factor
-        
-        shifts[i] = (shift_full_res, error)
+        # Perform coarse alignment with error handling
+        try:
+            shift, error = coarse_align(ref_dapi, target_dapi, 
+                                       filter_sigma=filter_sigma, upsample=upsample,
+                                       max_error=max_error)
+            
+            # Scale shift to full resolution
+            scale_factor = 2 ** pyramid_level
+            shift_full_res = shift * scale_factor
+            
+            shifts[i] = (shift_full_res, error)
+        except Exception as e:
+            # Alignment failed for this cycle
+            import warnings
+            if fallback_on_failure and pyramid_level > 0:
+                # Try with lower pyramid level
+                warnings.warn(
+                    f"Coarse alignment failed for cycle {i} at level {pyramid_level}: {e}\n"
+                    f"  Attempting fallback to level {pyramid_level - 1}",
+                    UserWarning
+                )
+                try:
+                    shift_full_res, error = coarse_align_cycle(
+                        reference_file, target_file,
+                        pyramid_level=pyramid_level - 1,
+                        dapi_channel=dapi_channel,
+                        filter_sigma=filter_sigma,
+                        upsample=upsample,
+                        fallback_on_failure=False,
+                        max_error=max_error
+                    )
+                    shifts[i] = (shift_full_res, error)
+                except Exception as fallback_error:
+                    # Fallback also failed
+                    warnings.warn(
+                        f"Coarse alignment failed for cycle {i} even with fallback: {fallback_error}\n"
+                        f"  Using zero shift with high error value",
+                        UserWarning
+                    )
+                    shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
+            else:
+                # No fallback or already at lowest level
+                warnings.warn(
+                    f"Coarse alignment failed for cycle {i}: {e}\n"
+                    f"  Using zero shift with high error value",
+                    UserWarning
+                )
+                shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
     
     return shifts

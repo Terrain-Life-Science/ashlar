@@ -10,6 +10,7 @@ from typing import Tuple, List, Dict, Optional
 from .reader import PyramidalOMETiffReader
 from .tile_grid import TileGrid, TileInfo
 from .coarse_alignment import coarse_align_all_cycles
+from .cloud_utils import optimize_worker_count
 
 
 def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileInfo,
@@ -41,12 +42,17 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     y_adj = tile_info.y + int(round(coarse_shift[0]))
     x_adj = tile_info.x + int(round(coarse_shift[1]))
     
+    # Store original coarse-shifted positions to preserve them as much as possible
+    original_y_adj = y_adj
+    original_x_adj = x_adj
+    
     # Clamp position to ensure we can extract a valid tile
     # Ensure at least 50% of original tile size is available
     min_tile_h = max(1, tile_info.height // 2)
     min_tile_w = max(1, tile_info.width // 2)
     
     # Clamp to valid range, ensuring minimum tile size
+    # But try to preserve the coarse-shifted position as much as possible
     y_adj = max(0, min(y_adj, h_max - min_tile_h))
     x_adj = max(0, min(x_adj, w_max - min_tile_w))
     
@@ -55,12 +61,44 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
     tile_w = min(tile_info.width, w_max - x_adj)
     
     # Ensure minimum tile size for valid registration
-    # If tile would be too small, adjust position to get larger tile
+    # If tile would be too small, adjust position minimally while respecting coarse shift
+    # Preserve the coarse-shifted position as much as possible
     if tile_h < min_tile_h:
-        y_adj = max(0, h_max - tile_info.height)
+        # We need to move to get minimum tile size, but stay as close as possible to coarse-shifted position
+        # Determine which edge we're closer to and adjust minimally
+        if original_y_adj + tile_info.height > h_max:
+            # Original position was at/near bottom edge, move up just enough to get minimum size
+            # Move up to h_max - min_tile_h, but don't move more than necessary
+            y_adj = max(0, h_max - min_tile_h)
+        else:
+            # Original position was at/near top edge or negative, move down (increase y_adj)
+            # But ensure we can extract at least min_tile_h pixels
+            # Position at 0 to maximize available space, but try to preserve original if possible
+            if original_y_adj < 0:
+                # Was negative, position at 0
+                y_adj = 0
+            else:
+                # Was positive but too small, ensure we can get min_tile_h
+                y_adj = max(0, min(original_y_adj, h_max - min_tile_h))
         tile_h = min(tile_info.height, h_max - y_adj)
+    
     if tile_w < min_tile_w:
-        x_adj = max(0, w_max - tile_info.width)
+        # We need to move to get minimum tile size, but stay as close as possible to coarse-shifted position
+        # Determine which edge we're closer to and adjust minimally
+        if original_x_adj + tile_info.width > w_max:
+            # Original position was at/near right edge, move left just enough to get minimum size
+            # Move left to w_max - min_tile_w, but don't move more than necessary
+            x_adj = max(0, w_max - min_tile_w)
+        else:
+            # Original position was at/near left edge or negative, move right (increase x_adj)
+            # But ensure we can extract at least min_tile_w pixels
+            # Position at 0 to maximize available space, but try to preserve original if possible
+            if original_x_adj < 0:
+                # Was negative, position at 0
+                x_adj = 0
+            else:
+                # Was positive but too small, ensure we can get min_tile_w
+                x_adj = max(0, min(original_x_adj, w_max - min_tile_w))
         tile_w = min(tile_info.width, w_max - x_adj)
     
     # Extract tile
@@ -76,7 +114,8 @@ def extract_tile(reader: PyramidalOMETiffReader, channel: int, tile_info: TileIn
 
 
 def register_tile(ref_tile: np.ndarray, target_tile: np.ndarray,
-                  filter_sigma: float = 0.0) -> Tuple[np.ndarray, float]:
+                  filter_sigma: float = 0.0,
+                  max_retries: int = 1) -> Tuple[np.ndarray, float]:
     """
     Register two tiles using phase correlation with sub-pixel accuracy.
     
@@ -88,12 +127,15 @@ def register_tile(ref_tile: np.ndarray, target_tile: np.ndarray,
         Target tile to align (2D array)
     filter_sigma : float
         Gaussian filter sigma for preprocessing
+    max_retries : int
+        Maximum number of retry attempts for transient failures (default: 1)
         
     Returns
     -------
     tuple
         (shift, error) where shift is (dy, dx) in pixels and error is alignment error
     """
+    import warnings
     from ashlar import utils
     
     # Ensure tiles are same size
@@ -102,15 +144,43 @@ def register_tile(ref_tile: np.ndarray, target_tile: np.ndarray,
             f"Tile shapes must match: {ref_tile.shape} vs {target_tile.shape}"
         )
     
-    # Use ashlar's phase correlation with 10x upsampling for sub-pixel accuracy
-    shift, error = utils.register(ref_tile, target_tile, 
-                                  sigma=filter_sigma, upsample=10)
+    # Retry logic for transient failures
+    last_exception = None
+    for attempt in range(max_retries + 1):
+        try:
+            # Use ashlar's phase correlation with 10x upsampling for sub-pixel accuracy
+            shift, error = utils.register(ref_tile, target_tile, 
+                                          sigma=filter_sigma, upsample=10)
+            
+            # Check for invalid results
+            if np.any(np.isnan(shift)) or np.any(np.isinf(shift)):
+                if attempt < max_retries:
+                    continue  # Retry
+                # Return zero shift with high error
+                shift = np.array([0.0, 0.0], dtype=np.float64)
+                error = 100.0
+                return shift, error
+            
+            # Convert to numpy array and float
+            shift = np.array(shift, dtype=np.float64)
+            error = float(error)
+            
+            return shift, error
+            
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries:
+                continue  # Retry on transient failures
+            # All retries exhausted
+            break
     
-    # Convert to numpy array and float
-    shift = np.array(shift, dtype=np.float64)
-    error = float(error)
-    
-    return shift, error
+    # All attempts failed - return zero shift with high error
+    warnings.warn(
+        f"Tile registration failed after {max_retries + 1} attempts: {last_exception}\n"
+        f"  Returning zero shift with high error value.",
+        UserWarning
+    )
+    return np.array([0.0, 0.0], dtype=np.float64), 100.0
 
 
 def register_single_tile_pair(ref_reader: PyramidalOMETiffReader,
@@ -118,7 +188,8 @@ def register_single_tile_pair(ref_reader: PyramidalOMETiffReader,
                               tile_info: TileInfo,
                               dapi_channel: int = 0,
                               coarse_shift: Tuple[float, float] = (0.0, 0.0),
-                              filter_sigma: float = 0.0) -> Tuple[np.ndarray, float]:
+                              filter_sigma: float = 0.0,
+                              max_retries: int = 1) -> Tuple[np.ndarray, float]:
     """
     Register a single tile pair.
     
@@ -136,20 +207,35 @@ def register_single_tile_pair(ref_reader: PyramidalOMETiffReader,
         Coarse shift to apply when extracting target tile
     filter_sigma : float
         Gaussian filter sigma for preprocessing
+    max_retries : int
+        Maximum number of retry attempts (default: 1)
         
     Returns
     -------
     tuple
         (shift, error) for this tile pair
     """
-    # Extract tiles
-    ref_tile = extract_tile(ref_reader, dapi_channel, tile_info, coarse_shift=(0.0, 0.0))
-    target_tile = extract_tile(target_reader, dapi_channel, tile_info, coarse_shift=coarse_shift)
+    import warnings
     
-    # Register tiles
-    shift, error = register_tile(ref_tile, target_tile, filter_sigma=filter_sigma)
-    
-    return shift, error
+    try:
+        # Extract tiles
+        ref_tile = extract_tile(ref_reader, dapi_channel, tile_info, coarse_shift=(0.0, 0.0))
+        target_tile = extract_tile(target_reader, dapi_channel, tile_info, coarse_shift=coarse_shift)
+        
+        # Register tiles
+        shift, error = register_tile(ref_tile, target_tile, 
+                                    filter_sigma=filter_sigma,
+                                    max_retries=max_retries)
+        
+        return shift, error
+    except Exception as e:
+        # Tile extraction or registration failed
+        warnings.warn(
+            f"Failed to register tile at ({tile_info.y}, {tile_info.x}): {e}\n"
+            f"  Returning zero shift with high error value.",
+            UserWarning
+        )
+        return np.array([0.0, 0.0], dtype=np.float64), 100.0
 
 
 def _register_one_tile_worker(args):
@@ -166,7 +252,7 @@ def _register_one_tile_worker(args):
     Returns
     -------
     tuple
-        (shift, error) for the tile
+        (shift, error) for the tile, or (None, exception) if failed
     """
     (ref_path, target_path, tile_info_tuple, dapi_channel, coarse_shift, filter_sigma) = args
     tile_info = TileInfo(*tile_info_tuple)
@@ -179,12 +265,39 @@ def _register_one_tile_worker(args):
             ref_reader_worker, target_reader_worker, tile_info,
             dapi_channel=dapi_channel,
             coarse_shift=coarse_shift,
-            filter_sigma=filter_sigma
+            filter_sigma=filter_sigma,
+            max_retries=1  # Retries handled at higher level
         )
         return (shift, error)
+    except Exception as e:
+        # Return error indicator instead of raising
+        return (None, e)
     finally:
         ref_reader_worker.close()
         target_reader_worker.close()
+
+
+def _safe_worker_wrapper(args):
+    """
+    Wrapper that catches exceptions in worker function.
+    
+    This is a module-level function to allow pickling for multiprocessing.
+    
+    Parameters
+    ----------
+    args : tuple
+        Arguments to pass to _register_one_tile_worker
+        
+    Returns
+    -------
+    tuple
+        Result from _register_one_tile_worker, or (None, exception) if failed
+    """
+    try:
+        return _register_one_tile_worker(args)
+    except Exception as e:
+        # Return error indicator
+        return (None, e)
 
 
 def register_all_tiles(ref_reader: PyramidalOMETiffReader,
@@ -193,7 +306,9 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
                        dapi_channel: int = 0,
                        coarse_shift: Tuple[float, float] = (0.0, 0.0),
                        filter_sigma: float = 0.0,
-                       num_workers: Optional[int] = None) -> List[Tuple[np.ndarray, float]]:
+                       num_workers: Optional[int] = None,
+                       skip_failed_tiles: bool = True,
+                       max_retries: int = 1) -> List[Tuple[np.ndarray, float]]:
     """
     Register all tiles between reference and target images.
     
@@ -222,20 +337,48 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     import multiprocessing as mp
     import os
     
-    if num_workers is None:
-        num_workers = os.cpu_count() or 1
+    # Optimize worker count for cloud deployments
+    num_workers = optimize_worker_count(
+        num_tiles=len(grid),
+        num_workers=num_workers,
+        is_cloud=False  # Can be made configurable in the future
+    )
     
     # For small grids or single worker, use sequential processing
     if len(grid) <= 4 or num_workers == 1:
         results = []
-        for tile_info in grid:
-            shift, error = register_single_tile_pair(
-                ref_reader, target_reader, tile_info,
-                dapi_channel=dapi_channel,
-                coarse_shift=coarse_shift,
-                filter_sigma=filter_sigma
+        failed_tiles = []
+        for tile_idx, tile_info in enumerate(grid):
+            try:
+                shift, error = register_single_tile_pair(
+                    ref_reader, target_reader, tile_info,
+                    dapi_channel=dapi_channel,
+                    coarse_shift=coarse_shift,
+                    filter_sigma=filter_sigma,
+                    max_retries=max_retries
+                )
+                results.append((shift, error))
+            except Exception as e:
+                if skip_failed_tiles:
+                    import warnings
+                    warnings.warn(
+                        f"Failed to register tile {tile_idx} at ({tile_info.y}, {tile_info.x}): {e}\n"
+                        f"  Skipping tile and continuing with others.",
+                        UserWarning
+                    )
+                    failed_tiles.append(tile_idx)
+                    # Add zero shift with high error
+                    results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
+                else:
+                    raise
+        
+        if failed_tiles and skip_failed_tiles:
+            import warnings
+            warnings.warn(
+                f"Skipped {len(failed_tiles)} failed tiles out of {len(grid)} total tiles.",
+                UserWarning
             )
-            results.append((shift, error))
+        
         return results
     
     # Parallel processing
@@ -253,8 +396,37 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
         for tile_tuple in tile_tuples
     ]
     
-    # Process tiles in parallel
+    # Process tiles in parallel with error handling
+    import warnings
+    results = []
+    failed_tiles = []
+    
     with mp.Pool(num_workers) as pool:
-        results = pool.map(_register_one_tile_worker, worker_args)
+        worker_results = pool.map(_safe_worker_wrapper, worker_args)
+    
+    # Process results and handle failures
+    for tile_idx, result in enumerate(worker_results):
+        if result[0] is None:
+            # Worker returned error
+            error = result[1]
+            if skip_failed_tiles:
+                warnings.warn(
+                    f"Failed to register tile {tile_idx}: {error}\n"
+                    f"  Skipping tile and continuing with others.",
+                    UserWarning
+                )
+                failed_tiles.append(tile_idx)
+                # Add zero shift with high error
+                results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
+            else:
+                raise RuntimeError(f"Tile {tile_idx} registration failed: {error}") from error
+        else:
+            results.append(result)
+    
+    if failed_tiles and skip_failed_tiles:
+        warnings.warn(
+            f"Skipped {len(failed_tiles)} failed tiles out of {len(grid)} total tiles.",
+            UserWarning
+        )
     
     return results
