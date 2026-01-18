@@ -7,6 +7,7 @@ Each cycle contains 3 channels: DAPI + 2 fluorescence channels.
 Optimizations for large images:
 - Channel-by-channel memory management (immediate uint16 conversion)
 - Efficient downsampling using skimage.transform.downscale_local_mean
+- Adaptive interpolation order (lower order for large images to improve speed)
 - Progress indicators for long-running operations
 - Error handling and recovery
 - Garbage collection to free memory promptly
@@ -127,9 +128,42 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic'):
     return img
 
 
-def apply_shift(img, dx, dy):
-    """Apply sub-pixel shift to image."""
-    return ndimage.shift(img, (dy, dx), order=3, mode='constant', cval=0.0)
+def apply_shift(img, dx, dy, order=None):
+    """
+    Apply sub-pixel shift to image with adaptive interpolation order.
+    
+    Parameters
+    ----------
+    img : np.ndarray
+        Input image
+    dx : float
+        Shift in x direction (columns)
+    dy : float
+        Shift in y direction (rows)
+    order : int, optional
+        Interpolation order (0=nearest, 1=linear, 2=quadratic, 3=cubic). 
+        If None, adaptively chosen based on image size:
+        - order=1 (linear) for images > 16384 pixels (fastest for very large images)
+        - order=2 (quadratic) for images > 8192 pixels (good balance for large images)
+        - order=3 (cubic) for smaller images (best quality)
+    
+    Returns
+    -------
+    np.ndarray
+        Shifted image
+    """
+    if order is None:
+        # Adaptive interpolation order based on image size
+        # Larger images use lower order for speed, smaller images use higher order for quality
+        max_dim = max(img.shape)
+        if max_dim > 16384:
+            order = 1  # Linear - fastest for very large images
+        elif max_dim > 8192:
+            order = 2  # Quadratic - good balance for large images
+        else:
+            order = 3  # Cubic - best quality for smaller images
+    
+    return ndimage.shift(img, (dy, dx), order=order, mode='constant', cval=0.0)
 
 
 def create_pyramidal_levels(img, num_levels=4):
