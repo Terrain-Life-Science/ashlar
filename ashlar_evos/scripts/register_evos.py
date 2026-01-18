@@ -113,7 +113,7 @@ Examples:
         '--report', '-R',
         type=pathlib.Path,
         default=None,
-        help='Path to save JSON performance report (optional)'
+        help='Path to save JSON performance report (default: output_dir/reports/report.json if output_dir specified)'
     )
     
     parser.add_argument(
@@ -255,9 +255,16 @@ Examples:
     
     # Run pipeline
     try:
+        # Set up reports directory if output_dir is specified
+        report_path = args.report
+        if not report_path and args.output_dir:
+            reports_dir = args.output_dir / 'reports'
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            report_path = reports_dir / 'report.json'
+        
         output_files = pipeline.run_full_pipeline(
             args.output_dir,
-            report_path=args.report
+            report_path=report_path
         )
         
         logger.info("")

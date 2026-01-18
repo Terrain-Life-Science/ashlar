@@ -53,11 +53,15 @@ def generate_multi_scale_images(
     
     base_output_dir = pathlib.Path(base_output_dir)
     
+    # Create synthetic_test_images directory if it doesn't exist
+    synthetic_test_dir = base_output_dir / 'synthetic_test_images'
+    synthetic_test_dir.mkdir(parents=True, exist_ok=True)
+    
     # Define scales: (scale_factor, width, height, output_dir_suffix)
     scales = [
-        (1.0, 2048, 2048, 'synthetic_test_images_1x'),
-        (2.0, 4096, 4096, 'synthetic_test_images_2x'),
-        (4.0, 8192, 8192, 'synthetic_test_images_4x'),
+        (1.0, 2048, 2048, '1x'),
+        (2.0, 4096, 4096, '2x'),
+        (4.0, 8192, 8192, '4x'),
     ]
     
     output_dirs = {}
@@ -65,6 +69,7 @@ def generate_multi_scale_images(
     print("=" * 70)
     print("Generating Multi-Scale Synthetic Pyramidal OME-TIFF Test Images")
     print("=" * 70)
+    print(f"Output directory: {synthetic_test_dir}")
     print(f"Pixel size: {pixel_size} µm")
     print(f"Pyramid levels: {num_pyramid_levels}")
     print(f"Channels per cycle: 3 (DAPI + 2 fluorescence)")
@@ -75,7 +80,7 @@ def generate_multi_scale_images(
     
     # Generate images for each scale
     for scale_factor, width, height, dir_suffix in scales:
-        output_dir = base_output_dir / dir_suffix
+        output_dir = synthetic_test_dir / dir_suffix
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dirs[scale_factor] = output_dir
         
@@ -138,7 +143,7 @@ Examples:
         '--base-dir', '-b',
         type=str,
         default='.',
-        help='Base directory for output (default: current directory). Creates subdirectories: synthetic_test_images_1x/, _2x/, _4x/'
+        help='Base directory for output (default: current directory). Creates synthetic_test_images/ with subdirectories: 1x/, 2x/, 4x/'
     )
     
     parser.add_argument(

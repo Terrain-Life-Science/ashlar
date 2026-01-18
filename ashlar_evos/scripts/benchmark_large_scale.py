@@ -191,7 +191,7 @@ def main(argv=None):
         epilog="""
 Examples:
   # Benchmark 4x synthetic images
-  python -m ashlar_evos.scripts.benchmark_large_scale synthetic_test_images_4x/cycle_*.ome.tif --output-dir benchmark_4x/
+  python -m ashlar_evos.scripts.benchmark_large_scale synthetic_test_images/4x/cycle_*.ome.tif --output-dir benchmark_4x/
   
   # Benchmark with GPU
   python -m ashlar_evos.scripts.benchmark_large_scale cycle_*.ome.tif --output-dir benchmark/ --gpu
@@ -252,7 +252,7 @@ Examples:
         '--report', '-R',
         type=pathlib.Path,
         default=None,
-        help='Path to save benchmark report JSON (default: output_dir/benchmark_report.json)'
+        help='Path to save benchmark report JSON (default: output_dir/reports/benchmark_report.json)'
     )
     
     args = parser.parse_args(argv)
@@ -315,8 +315,13 @@ Examples:
             coarse_only=args.coarse_only
         )
         
-        # Save benchmark report
-        report_path = args.report or (args.output_dir / 'benchmark_report.json')
+        # Save benchmark report (default to reports/ directory)
+        if args.report:
+            report_path = args.report
+        else:
+            reports_dir = args.output_dir / 'reports'
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            report_path = reports_dir / 'benchmark_report.json'
         with open(report_path, 'w') as f:
             json.dump(results, f, indent=2)
         

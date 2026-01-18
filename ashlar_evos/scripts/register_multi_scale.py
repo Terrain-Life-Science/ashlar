@@ -218,11 +218,11 @@ def generate_multi_scale_report(
     dict
         Combined multi-scale report
     """
-    # Define scales
+    # Define scales (now inside synthetic_test_images/ directory)
     scales = [
-        (1.0, 2048, 2048, 'synthetic_test_images_1x', 'aligned_output_1x'),
-        (2.0, 4096, 4096, 'synthetic_test_images_2x', 'aligned_output_2x'),
-        (4.0, 8192, 8192, 'synthetic_test_images_4x', 'aligned_output_4x'),
+        (1.0, 2048, 2048, 'synthetic_test_images/1x', 'aligned_output_1x'),
+        (2.0, 4096, 4096, 'synthetic_test_images/2x', 'aligned_output_2x'),
+        (4.0, 8192, 8192, 'synthetic_test_images/4x', 'aligned_output_4x'),
     ]
     
     runs = []
@@ -307,7 +307,7 @@ Examples:
         '--base-input-dir', '-i',
         type=pathlib.Path,
         required=True,
-        help='Base directory containing scale subdirectories (synthetic_test_images_1x/, _2x/, _4x/)'
+        help='Base directory containing synthetic_test_images/ with scale subdirectories (1x/, 2x/, 4x/)'
     )
     
     parser.add_argument(
@@ -321,7 +321,7 @@ Examples:
         '--report', '-R',
         type=pathlib.Path,
         default=None,
-        help='Path to save combined JSON report (default: report.json in base-output-dir)'
+        help='Path to save combined JSON report (default: reports/report_multi_scale.json in base-output-dir)'
     )
     
     parser.add_argument(
@@ -391,7 +391,10 @@ Examples:
     
     # Determine report path
     if args.report is None:
-        report_path = args.base_output_dir / 'report.json'
+        # Default to reports/ directory in base_output_dir
+        reports_dir = args.base_output_dir / 'reports'
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report_path = reports_dir / 'report_multi_scale.json'
     else:
         report_path = args.report
     

@@ -168,7 +168,7 @@ python -m ashlar_evos.scripts.register_batch \
 **Performance Benchmarking**:
 ```bash
 python -m ashlar_evos.scripts.benchmark_large_scale \
-    synthetic_test_images_4x/cycle_*.ome.tif \
+    synthetic_test_images/4x/cycle_*.ome.tif \
     --output-dir benchmark_4x/
 ```
 

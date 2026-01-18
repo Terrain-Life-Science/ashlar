@@ -36,8 +36,8 @@ Examples:
     parser.add_argument(
         '--output-dir', '-o',
         type=str,
-        default='synthetic_test_images_35k',
-        help='Output directory for generated images (default: synthetic_test_images_35k)'
+        default='synthetic_test_images/35k',
+        help='Output directory for generated images (default: synthetic_test_images/35k)'
     )
     
     parser.add_argument(
