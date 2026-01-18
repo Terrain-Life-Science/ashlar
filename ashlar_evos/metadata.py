@@ -133,11 +133,25 @@ class OMEMetadata:
         """
         if level not in self._shapes:
             tiff = self._get_tiff()
-            if level >= len(tiff.series):
-                raise ValueError(f"Pyramid level {level} does not exist (max: {len(tiff.series)-1})")
+            if len(tiff.series) == 0:
+                raise ValueError("No image series found in file")
             
-            shape = tiff.series[level].shape
-            axes = tiff.series[level].axes
+            series = tiff.series[0]
+            
+            # Check if pyramid levels are stored as subifds (series.levels)
+            if hasattr(series, 'levels') and series.levels:
+                # Pyramid levels are stored as subifds within a single series
+                if level >= len(series.levels):
+                    raise ValueError(f"Pyramid level {level} does not exist (max: {len(series.levels)-1})")
+                level_series = series.levels[level]
+            else:
+                # Each level is a separate series (legacy format)
+                if level >= len(tiff.series):
+                    raise ValueError(f"Pyramid level {level} does not exist (max: {len(tiff.series)-1})")
+                level_series = tiff.series[level]
+            
+            shape = level_series.shape
+            axes = level_series.axes
             
             # Find Y and X dimensions
             if 'Y' in axes and 'X' in axes:
@@ -163,7 +177,17 @@ class OMEMetadata:
             Number of pyramid levels
         """
         tiff = self._get_tiff()
-        return len(tiff.series)
+        if len(tiff.series) == 0:
+            return 0
+        
+        # Check if pyramid levels are stored as subifds (series.levels)
+        series = tiff.series[0]
+        if hasattr(series, 'levels') and series.levels:
+            # Pyramid levels are stored as subifds within a single series
+            return len(series.levels)
+        else:
+            # Each level is a separate series (legacy format)
+            return len(tiff.series)
     
     def get_channel_name(self, channel: int) -> Optional[str]:
         """
