@@ -83,21 +83,34 @@ def calculate_optimal_pyramid_level(
                 # Clamp to available pyramid levels, ensuring >= 0
                 # For large images, ensure we don't go below minimum level if available
                 if image_dimension >= 16384:
-                    # For 8x/16x images, use level 3 if available, otherwise use highest available
+                    # For 8x/16x images, require level 3 to prevent OOM
                     if max_pyramid_level >= min_level_for_large_images:
                         optimal_level = min_level_for_large_images
                     else:
-                        # If level 3 not available, use highest available level
-                        optimal_level = max_pyramid_level
+                        # Level 3 not available - this is a problem for large images
+                        # Raise error to prevent OOM crashes
+                        raise ValueError(
+                            f"Large image ({image_dimension}×{image_dimension} pixels) requires "
+                            f"pyramid level {min_level_for_large_images} for safe coarse alignment, "
+                            f"but image only has {num_levels} levels (0-{max_pyramid_level}). "
+                            f"Please regenerate images with at least {min_level_for_large_images + 1} pyramid levels."
+                        )
                 else:
                     # For smaller images, clamp to available levels
                     optimal_level = min(optimal_level, max(0, max_pyramid_level))
-    except Exception:
+    except Exception as e:
         # If metadata reading fails, use a conservative default
+        # But for large images, we can't proceed safely without knowing available levels
         if image_dimension >= 16384:
-            # For large images, enforce level 3 (or fallback to 4 if that's max)
-            optimal_level = min(min_level_for_large_images, 4)
+            # For large images, we need to know available levels to prevent OOM
+            # Re-raise the exception with a helpful message
+            raise RuntimeError(
+                f"Failed to read pyramid levels from {cycle_file} for large image "
+                f"({image_dimension}×{image_dimension} pixels). Cannot safely determine "
+                f"coarse alignment level. Original error: {e}"
+            ) from e
         else:
+            # For smaller images, use conservative fallback
             optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
     
     # Final validation: ensure optimal_level is never negative

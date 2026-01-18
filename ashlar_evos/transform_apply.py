@@ -463,9 +463,13 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     h, w = image_shape
     
     # Determine if we need memory-mapped arrays (for large images)
-    # Threshold: ~100M pixels (roughly 10K×10K) - use memmap for larger images
+    # Lower threshold to 50M pixels to be more conservative and catch 8x images earlier
+    # 8x images: 16384×16384 = 268M pixels (will use memmap)
+    # 16x images: 32768×32768 = 1.07B pixels (will use memmap)
     image_area = h * w
-    use_memmap = image_area > 100_000_000  # 100M pixels threshold
+    # Use memmap for images > 50M pixels (roughly 7K×7K or larger)
+    # This ensures 8x and 16x images always use memmap
+    use_memmap = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
     
     # Initialize output channels and weight maps for blending
     # Use memory-mapped arrays for large images to avoid OOM

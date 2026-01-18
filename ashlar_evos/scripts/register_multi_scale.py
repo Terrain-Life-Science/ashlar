@@ -434,6 +434,11 @@ Examples:
         report_path = args.report
     
     try:
+        # TEMPORARY: Force num_workers=1 for testing Windows multiprocessing issue
+        # TODO: Remove this after confirming the issue
+        test_num_workers = 1  # Force sequential processing
+        logger.info(f"[TEST MODE] Overriding num_workers to {test_num_workers} to test Windows multiprocessing issue")
+        
         # Run multi-scale registration
         combined_report = generate_multi_scale_report(
             base_input_dir=args.base_input_dir,
@@ -443,7 +448,7 @@ Examples:
             tile_size=args.tile_size,
             tile_overlap=args.tile_overlap,
             transform_type=args.transform_type,
-            num_workers=args.num_workers,
+            num_workers=test_num_workers,  # Use test override instead of args.num_workers
             verbose=not args.quiet,
             coarse_only=args.coarse_only,
             max_scale=args.max_scale

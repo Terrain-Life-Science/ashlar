@@ -265,8 +265,23 @@ class EvosRegistrationPipeline:
                 if self.verbose:
                     self._print(f"Auto-configured pyramid level: {optimal_level} "
                                f"(based on image size {image_size['width']}×{image_size['height']})")
+                
+                # Additional validation: for large images, ensure level 3 is used
+                image_dimension = max(image_size['width'], image_size['height'])
+                if image_dimension >= 16384 and optimal_level < 3:
+                    self._print(
+                        f"WARNING: Large image ({image_dimension}×{image_dimension}) will use "
+                        f"pyramid level {optimal_level} instead of recommended level 3. "
+                        f"This may cause memory issues.",
+                        level='WARNING'
+                    )
+                
                 self.coarse_pyramid_level = optimal_level
             except Exception as e:
+                # Re-raise if it's a ValueError or RuntimeError (these indicate real problems)
+                if isinstance(e, (ValueError, RuntimeError)):
+                    raise
+                # For other exceptions, just warn
                 self._print(f"Could not auto-configure pyramid level: {e}", level='WARNING')
         
         # Detect large images and provide recommendations
@@ -295,6 +310,54 @@ class EvosRegistrationPipeline:
         log_level = getattr(logging, level.upper(), logging.INFO)
         if self.verbose or level in ('WARNING', 'ERROR', 'CRITICAL'):
             self.logger.log(log_level, message)
+    
+    def _log_memory_usage(self, phase_name: str = ""):
+        """
+        Log current memory usage for monitoring.
+        
+        Parameters
+        ----------
+        phase_name : str
+            Name of the phase being logged (for context)
+        """
+        try:
+            import psutil
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            current_mb = mem_info.rss / (1024 * 1024)
+            
+            # Get system memory info
+            sys_mem = psutil.virtual_memory()
+            available_mb = sys_mem.available / (1024 * 1024)
+            total_mb = sys_mem.total / (1024 * 1024)
+            percent_used = sys_mem.percent
+            
+            context = f" [{phase_name}]" if phase_name else ""
+            self._print(
+                f"Memory usage{context}: {current_mb:.1f} MB (process), "
+                f"{available_mb:.1f} MB available / {total_mb:.1f} MB total "
+                f"({percent_used:.1f}% system used)"
+            )
+            
+            # Warn if memory usage is high
+            if percent_used > 85:
+                self._print(
+                    f"WARNING: System memory usage is high ({percent_used:.1f}%). "
+                    f"Consider reducing tile size or number of workers.",
+                    level='WARNING'
+                )
+            if current_mb > 10_000:  # > 10GB
+                self._print(
+                    f"WARNING: Process memory usage is high ({current_mb:.1f} MB). "
+                    f"This may indicate a memory leak or inefficient processing.",
+                    level='WARNING'
+                )
+        except ImportError:
+            # psutil not available - skip memory logging
+            pass
+        except Exception as e:
+            # Don't fail pipeline if memory logging fails
+            self.logger.debug(f"Could not log memory usage: {e}")
     
     def _validate_input_files(self):
         """
@@ -712,6 +775,7 @@ class EvosRegistrationPipeline:
         """
         with self.performance_monitor.phase("Coarse Alignment"):
             self._print("Phase 1: Coarse Alignment")
+            self._log_memory_usage("Coarse Alignment (start)")
             
             # If coarse_only, use level 2 (4x downsampled) with 10x upsampling for sub-pixel accuracy
             # This minimizes memory usage while maintaining accuracy
@@ -739,6 +803,8 @@ class EvosRegistrationPipeline:
                     self._validate_shift(shift, i)
                     self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
             
+            self._log_memory_usage("Coarse Alignment (end)")
+            
             # Mark phase as complete and save checkpoint
             if 'coarse_alignment' not in self.completed_phases:
                 self.completed_phases.append('coarse_alignment')
@@ -761,6 +827,8 @@ class EvosRegistrationPipeline:
         list
             List of (shift, error) tuples for each tile
         """
+        self._log_memory_usage(f"Fine Registration (start) - Cycle {cycle_idx}")
+        
         if cycle_idx == self.reference_idx:
             # Reference cycle has no shifts
             return []
@@ -801,6 +869,8 @@ class EvosRegistrationPipeline:
                 self.fine_shifts[cycle_idx] = results
                 self._print(f"  Registered {len(results)} tiles")
                 
+                self._log_memory_usage(f"Fine Registration (end) - Cycle {cycle_idx}")
+                
                 # Mark cycle as complete and save checkpoint
                 if cycle_idx not in self.completed_cycles:
                     self.completed_cycles.append(cycle_idx)
@@ -826,6 +896,8 @@ class EvosRegistrationPipeline:
         dict
             Transform fitting results
         """
+        self._log_memory_usage(f"Transform Fitting (start) - Cycle {cycle_idx}")
+        
         if cycle_idx == self.reference_idx:
             # Reference cycle has identity transform
             identity = np.eye(3)
@@ -908,6 +980,8 @@ class EvosRegistrationPipeline:
             self.transforms[cycle_idx] = result
             self._print(f"  RMSE: {result['rmse']:.4f}")
             
+            self._log_memory_usage(f"Transform Fitting (end) - Cycle {cycle_idx}")
+            
             # Save checkpoint after transform fitting
             if self.checkpoint_path:
                 self.save_checkpoint()
@@ -937,6 +1011,7 @@ class EvosRegistrationPipeline:
         with self.performance_monitor.phase(f"Apply Transform - Cycle {cycle_idx}"):
             self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
             self._print(f"  Writing to: {output_file}")
+            self._log_memory_usage(f"Transform Application (start) - Cycle {cycle_idx}")
             
             # Check if GPU is available
             from .transform_apply import is_gpu_available
@@ -959,6 +1034,8 @@ class EvosRegistrationPipeline:
             
             # Record output file size
             self.performance_monitor.record_output_file(str(output_file))
+            
+            self._log_memory_usage(f"Transform Application (end) - Cycle {cycle_idx}")
             
             self._print(f"  [OK] Complete: {output_file}")
             

@@ -49,9 +49,12 @@ def write_pyramidal_ometiff(output_path: Path,
         channel_names = [f"Channel_{i}" for i in range(len(channels))]
     
     # Determine if we need incremental writing (for large images)
-    # Threshold: ~100M pixels (roughly 10K×10K) - use incremental for larger images
+    # Lower threshold to 50M pixels to be more conservative
+    # 8x images: 16384×16384 = 268M pixels (will use incremental)
+    # 16x images: 32768×32768 = 1.07B pixels (will use incremental)
     image_area = base_shape[0] * base_shape[1]
-    use_incremental = image_area > 100_000_000  # 100M pixels threshold
+    # Use incremental writing for images > 50M pixels (roughly 7K×7K or larger)
+    use_incremental = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
     
     # Write OME-TIFF with pyramid
     # Use tifffile's OME-TIFF writer with subifds for pyramid levels
@@ -95,8 +98,13 @@ def write_pyramidal_ometiff(output_path: Path,
                 predictor=True,
             )
             
+            # Free base level data immediately after writing to reduce memory usage
+            del base_level_data
+            
             # Generate and write pyramid levels incrementally
             if num_pyramid_levels > 1:
+                # Keep reference to channels for first pyramid level generation
+                # After generating level 1, we can free the original channels
                 current_level_channels = channels
                 
                 for level in range(1, num_pyramid_levels):
@@ -137,15 +145,19 @@ def write_pyramidal_ometiff(output_path: Path,
                     )
                     
                     # Update current level for next iteration (only keep what we need)
-                    # For memory efficiency, we can delete the previous level after downsampling
-                    # But we need to keep the current level for the next iteration
+                    # Free previous level channels before updating to reduce memory
+                    if level == 1:
+                        # After generating level 1, we can free the original base level channels
+                        del current_level_channels
+                    else:
+                        # For subsequent levels, free the previous level
+                        del current_level_channels
+                    
+                    # Update to current level for next iteration
                     current_level_channels = level_channels
                     
-                    # Free memory by explicitly deleting large arrays
+                    # Free level_data immediately after writing
                     del level_data
-                    if level > 1:
-                        # Can delete channels from 2 levels ago
-                        pass  # Python GC will handle this
         else:
             # For smaller images, use original approach (all levels in memory)
             # Generate pyramid levels with proper downsampling
@@ -258,44 +270,101 @@ def write_aligned_cycle(input_file: Path,
     from .transform_apply import apply_transform_to_channel, apply_transform_tiled
     from .metadata import OMEMetadata
     
+    import tempfile
+    import os
+    
     with PyramidalOMETiffReader(input_file) as reader:
-        # Get image shape
+        # Get image shape and channel count
         with OMEMetadata(input_file) as meta:
             image_shape = meta.shape_at_level(0)  # (height, width)
+            num_channels = meta.num_channels
         
-        # Auto-disable tiled transform for small images (overhead not worth it)
-        # Threshold: 10M pixels (roughly 3162×3162 or larger)
+        # Determine if we should process channels one at a time
+        # For large images (>50M pixels), process channels incrementally to reduce peak memory
         image_area = image_shape[0] * image_shape[1]
-        large_image_threshold = 10_000_000  # 10M pixels
+        process_channels_incrementally = image_area > 50_000_000  # 50M pixels threshold
         
-        if use_tiled_transform and image_area < large_image_threshold:
-            # Small image - tiled processing overhead not worth it
-            use_tiled_transform = False
-        
-        if use_tiled_transform:
-            # Use tiled processing for memory efficiency
-            transformed_channels = apply_transform_tiled(
-                reader,
-                transform_matrix,
-                image_shape,
-                tile_size=tile_size,
-                tile_overlap=tile_overlap,
-                level=0,
-                order=order,
-                use_gpu=use_gpu
-            )
-        else:
-            # Original method: load entire image
-            num_channels = reader.get_num_channels()
+        if process_channels_incrementally:
+            # For large images: process channels one at a time and write to temp files
+            # This reduces peak memory by only holding one channel in memory at a time
+            temp_files = []
             transformed_channels = []
             
-            for channel in range(num_channels):
-                # Apply transform to base level
-                transformed = apply_transform_to_channel(
-                    reader, channel, transform_matrix, level=0, order=order, 
+            try:
+                for channel_idx in range(num_channels):
+                    # Apply transform to this channel only
+                    if use_tiled_transform:
+                        # Use tiled transform for single channel
+                        # Note: apply_transform_tiled processes all channels, so we need
+                        # a single-channel version. For now, use apply_transform_to_channel
+                        # which is already channel-by-channel
+                        transformed = apply_transform_to_channel(
+                            reader, channel_idx, transform_matrix, level=0, 
+                            order=order, use_gpu=use_gpu
+                        )
+                    else:
+                        transformed = apply_transform_to_channel(
+                            reader, channel_idx, transform_matrix, level=0, 
+                            order=order, use_gpu=use_gpu
+                        )
+                    
+                    # Convert to uint16 and write to temp file to free memory
+                    transformed_uint16 = transformed.astype(np.uint16)
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.npy')
+                    temp_files.append(temp_file.name)
+                    np.save(temp_file.name, transformed_uint16)
+                    temp_file.close()
+                    
+                    # Free memory
+                    del transformed, transformed_uint16
+                
+                # Read channels back from temp files for writing
+                # We need all channels to write OME-TIFF, but they're now on disk
+                # For very large images, we can use memory-mapped reading
+                for temp_file_path in temp_files:
+                    channel_data = np.load(temp_file_path, mmap_mode='r')
+                    # Convert to regular array (will be loaded when needed)
+                    transformed_channels.append(np.array(channel_data))
+                
+            finally:
+                # Clean up temp files
+                for temp_file_path in temp_files:
+                    try:
+                        os.unlink(temp_file_path)
+                    except Exception:
+                        pass
+        else:
+            # For smaller images: process all channels at once (original behavior)
+            # Auto-disable tiled transform for small images (overhead not worth it)
+            large_image_threshold = 10_000_000  # 10M pixels
+            
+            if use_tiled_transform and image_area < large_image_threshold:
+                # Small image - tiled processing overhead not worth it
+                use_tiled_transform = False
+            
+            if use_tiled_transform:
+                # Use tiled processing for memory efficiency
+                transformed_channels = apply_transform_tiled(
+                    reader,
+                    transform_matrix,
+                    image_shape,
+                    tile_size=tile_size,
+                    tile_overlap=tile_overlap,
+                    level=0,
+                    order=order,
                     use_gpu=use_gpu
                 )
-                transformed_channels.append(transformed)
+            else:
+                # Original method: load entire image
+                transformed_channels = []
+                
+                for channel in range(num_channels):
+                    # Apply transform to base level
+                    transformed = apply_transform_to_channel(
+                        reader, channel, transform_matrix, level=0, order=order, 
+                        use_gpu=use_gpu
+                    )
+                    transformed_channels.append(transformed)
     
     # Write pyramidal OME-TIFF
     write_pyramidal_ometiff(

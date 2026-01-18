@@ -11,7 +11,8 @@ from .reader import PyramidalOMETiffReader
 from .metadata import OMEMetadata
 
 
-def read_pyramid_dapi(filepath: Path, level: int = 3, dapi_channel: int = 0) -> np.ndarray:
+def read_pyramid_dapi(filepath: Path, level: int = 3, dapi_channel: int = 0, 
+                     use_memmap: bool = False) -> np.ndarray:
     """
     Read DAPI channel from specific pyramid level.
     
@@ -23,14 +24,21 @@ def read_pyramid_dapi(filepath: Path, level: int = 3, dapi_channel: int = 0) -> 
         Pyramid level (0 = base, higher = more downsampled)
     dapi_channel : int
         Channel index for DAPI (default: 0)
+    use_memmap : bool
+        If True, use memory-mapped reading (returns zarr array view).
+        Note: zarr arrays are already memory-mapped, but conversion to numpy
+        may still be needed for phase correlation. Use True for large images
+        to avoid unnecessary copies.
         
     Returns
     -------
-    np.ndarray
-        2D array of DAPI channel at specified pyramid level
+    np.ndarray or zarr.Array
+        2D array of DAPI channel at specified pyramid level.
+        If use_memmap=True, may return zarr array (memory-mapped).
+        Otherwise returns numpy array.
     """
     with PyramidalOMETiffReader(filepath) as reader:
-        dapi = reader.get_channel(level, dapi_channel)
+        dapi = reader.get_channel(level, dapi_channel, use_memmap=use_memmap)
     return dapi
 
 
@@ -45,10 +53,10 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
     
     Parameters
     ----------
-    reference_dapi : np.ndarray
-        Reference DAPI image (2D array)
-    target_dapi : np.ndarray
-        Target DAPI image to align (2D array)
+    reference_dapi : np.ndarray or zarr.Array
+        Reference DAPI image (2D array). Can be zarr array (memory-mapped).
+    target_dapi : np.ndarray or zarr.Array
+        Target DAPI image to align (2D array). Can be zarr array (memory-mapped).
     filter_sigma : float
         Gaussian filter sigma for preprocessing (default: 0.0 = no filter)
     upsample : int
@@ -66,6 +74,21 @@ def coarse_align(reference_dapi: np.ndarray, target_dapi: np.ndarray,
     """
     import warnings
     from ashlar import utils
+    
+    # Convert zarr arrays to numpy if needed (ashlar.utils.register requires numpy arrays)
+    # Note: For phase correlation, we need actual numpy arrays in memory anyway.
+    # The benefit of memmap is avoiding unnecessary copies during reading, but
+    # we still need to convert for the correlation operation.
+    # For level 3, this is fine (~32MB for 16x images).
+    try:
+        import zarr
+        if isinstance(reference_dapi, zarr.Array):
+            reference_dapi = np.asarray(reference_dapi)
+        if isinstance(target_dapi, zarr.Array):
+            target_dapi = np.asarray(target_dapi)
+    except ImportError:
+        # zarr not available, assume numpy arrays
+        pass
     
     # Ensure images are same size (should be for same pyramid level)
     if reference_dapi.shape != target_dapi.shape:
@@ -156,12 +179,24 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
     """
     import warnings
     
+    # Determine if we should use memory-mapped reading for large images
+    try:
+        from .metadata import OMEMetadata
+        with OMEMetadata(reference_file) as meta:
+            base_shape = meta.shape_at_level(0)
+            base_area = base_shape[0] * base_shape[1]
+            # Use memmap for images > 200M pixels (roughly 14K×14K or larger)
+            use_memmap = base_area > 200_000_000
+    except Exception:
+        # If metadata reading fails, default to False (safe fallback)
+        use_memmap = False
+    
     # Read DAPI channels from pyramid level
     try:
         ref_dapi = read_pyramid_dapi(reference_file, level=pyramid_level, 
-                                     dapi_channel=dapi_channel)
+                                     dapi_channel=dapi_channel, use_memmap=use_memmap)
         target_dapi = read_pyramid_dapi(target_file, level=pyramid_level, 
-                                        dapi_channel=dapi_channel)
+                                        dapi_channel=dapi_channel, use_memmap=use_memmap)
     except Exception as e:
         if fallback_on_failure and pyramid_level > 0:
             # Try lower pyramid level (higher resolution)
@@ -254,9 +289,25 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
     # Reference cycle has no shift
     shifts[reference_idx] = (np.array([0.0, 0.0], dtype=np.float64), 0.0)
     
+    # Determine if we should use memory-mapped reading for large images
+    # Use memmap for images where level 0 would be > 100M pixels
+    # At level 3, this means base image > 800M pixels (roughly 28K×28K or larger)
+    # For 8x (16384×16384) and 16x (32768×32768), use memmap even at level 3
+    # to avoid unnecessary memory copies
+    try:
+        from .metadata import OMEMetadata
+        with OMEMetadata(cycle_files[0]) as meta:
+            base_shape = meta.shape_at_level(0)
+            base_area = base_shape[0] * base_shape[1]
+            # Use memmap for images > 200M pixels (roughly 14K×14K or larger)
+            use_memmap = base_area > 200_000_000
+    except Exception:
+        # If metadata reading fails, default to False (safe fallback)
+        use_memmap = False
+    
     # Read reference DAPI once
     ref_dapi = read_pyramid_dapi(reference_file, level=pyramid_level, 
-                                 dapi_channel=dapi_channel)
+                                 dapi_channel=dapi_channel, use_memmap=use_memmap)
     
     # Force cleanup of zarr references to release file handles
     # This prevents Windows file locking issues when fine registration opens the same files
@@ -269,7 +320,7 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
             continue
         
         target_dapi = read_pyramid_dapi(target_file, level=pyramid_level, 
-                                       dapi_channel=dapi_channel)
+                                       dapi_channel=dapi_channel, use_memmap=use_memmap)
         
         # Perform coarse alignment with error handling
         try:
