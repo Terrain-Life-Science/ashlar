@@ -717,3 +717,218 @@ def optimize_for_s3_paths(
         )
     
     return result
+
+
+def estimate_aws_instance_cost(
+    instance_type: str,
+    region: str = 'us-east-1',
+    hours: float = 1.0,
+    use_spot: bool = False
+) -> Dict[str, any]:
+    """
+    Estimate AWS instance cost for running registration pipeline.
+    
+    Note: This provides rough estimates. Actual costs may vary based on:
+    - Current pricing (prices change frequently)
+    - Spot instance availability and pricing
+    - Data transfer costs
+    - Storage costs
+    
+    Parameters
+    ----------
+    instance_type : str
+        EC2 instance type (e.g., 'g4dn.xlarge', 'c5.4xlarge')
+    region : str
+        AWS region (default: us-east-1)
+    hours : float
+        Estimated hours of usage (default: 1.0)
+    use_spot : bool
+        Whether to use Spot instances (default: False)
+        
+    Returns
+    -------
+    dict
+        Dictionary with cost estimates:
+        - instance_type: Instance type
+        - region: AWS region
+        - hours: Hours of usage
+        - estimated_cost_on_demand: Estimated on-demand cost
+        - estimated_cost_spot: Estimated spot cost (if use_spot=True)
+        - cost_per_hour_on_demand: On-demand cost per hour
+        - cost_per_hour_spot: Spot cost per hour (approximate)
+        - note: Additional notes about pricing
+    """
+    # Rough pricing estimates (as of 2024, in USD per hour)
+    # These are approximate and should be updated with current pricing
+    pricing_estimates = {
+        # GPU instances
+        'g4dn.xlarge': {'on_demand': 0.526, 'spot': 0.158},
+        'g4dn.2xlarge': {'on_demand': 0.752, 'spot': 0.226},
+        'g4dn.4xlarge': {'on_demand': 1.204, 'spot': 0.361},
+        'g5.xlarge': {'on_demand': 1.006, 'spot': 0.302},
+        'g5.2xlarge': {'on_demand': 1.212, 'spot': 0.364},
+        
+        # Compute-optimized instances
+        'c5.xlarge': {'on_demand': 0.17, 'spot': 0.051},
+        'c5.2xlarge': {'on_demand': 0.34, 'spot': 0.102},
+        'c5.4xlarge': {'on_demand': 0.68, 'spot': 0.204},
+        'c5.9xlarge': {'on_demand': 1.53, 'spot': 0.459},
+        'c5n.4xlarge': {'on_demand': 0.768, 'spot': 0.230},
+        
+        # Memory-optimized (for very large images)
+        'r5.2xlarge': {'on_demand': 0.504, 'spot': 0.151},
+        'r5.4xlarge': {'on_demand': 1.008, 'spot': 0.302},
+    }
+    
+    result = {
+        'instance_type': instance_type,
+        'region': region,
+        'hours': hours,
+        'estimated_cost_on_demand': None,
+        'estimated_cost_spot': None,
+        'cost_per_hour_on_demand': None,
+        'cost_per_hour_spot': None,
+        'note': 'Pricing estimates are approximate. Check AWS Pricing Calculator for current rates.'
+    }
+    
+    # Get pricing if available
+    if instance_type in pricing_estimates:
+        prices = pricing_estimates[instance_type]
+        result['cost_per_hour_on_demand'] = prices['on_demand']
+        result['estimated_cost_on_demand'] = prices['on_demand'] * hours
+        
+        if 'spot' in prices:
+            result['cost_per_hour_spot'] = prices['spot']
+            result['estimated_cost_spot'] = prices['spot'] * hours
+        
+        if use_spot and result['estimated_cost_spot']:
+            result['note'] += ' Spot instances can save ~70% but may be interrupted.'
+    else:
+        result['note'] = f'Pricing not available for {instance_type}. Check AWS Pricing Calculator.'
+    
+    return result
+
+
+def estimate_registration_cost(
+    image_width: int,
+    image_height: int,
+    num_cycles: int,
+    instance_type: Optional[str] = None,
+    region: str = 'us-east-1',
+    use_spot: bool = False,
+    check_aws_quota: bool = False
+) -> Dict[str, any]:
+    """
+    Estimate total cost for running registration pipeline on AWS.
+    
+    Estimates include:
+    - Instance costs (on-demand or spot)
+    - Estimated processing time based on image size
+    - Data transfer costs (rough estimate)
+    
+    Parameters
+    ----------
+    image_width : int
+        Image width in pixels
+    image_height : int
+        Image height in pixels
+    num_cycles : int
+        Number of cycles to process
+    instance_type : str, optional
+        Instance type (if None, will be recommended)
+    region : str
+        AWS region (default: us-east-1)
+    use_spot : bool
+        Whether to use Spot instances (default: False)
+    check_aws_quota : bool
+        Whether to check AWS quota for instance recommendations
+        
+    Returns
+    -------
+    dict
+        Dictionary with cost estimates:
+        - estimated_hours: Estimated processing hours
+        - instance_type: Instance type used
+        - instance_cost: Instance cost estimate
+        - data_transfer_cost: Estimated data transfer cost
+        - total_estimated_cost: Total estimated cost
+        - recommendations: Cost optimization recommendations
+    """
+    image_dimension = max(image_width, image_height)
+    
+    # Estimate processing time (rough: 5-10 min per cycle for GPU, 20-35 min for CPU)
+    # For 35K×35K images
+    if image_dimension >= 30000:
+        hours_per_cycle_gpu = 0.15  # ~9 minutes
+        hours_per_cycle_cpu = 0.5   # ~30 minutes
+    elif image_dimension >= 20000:
+        hours_per_cycle_gpu = 0.1   # ~6 minutes
+        hours_per_cycle_cpu = 0.3    # ~18 minutes
+    elif image_dimension >= 15000:
+        hours_per_cycle_gpu = 0.08  # ~5 minutes
+        hours_per_cycle_cpu = 0.25   # ~15 minutes
+    else:
+        hours_per_cycle_gpu = 0.05  # ~3 minutes
+        hours_per_cycle_cpu = 0.15   # ~9 minutes
+    
+    # Get instance recommendation if not provided
+    if instance_type is None:
+        gpu_quota_available = True
+        if check_aws_quota and AWS_AVAILABLE:
+            quota_info = check_aws_gpu_quota(region=region)
+            gpu_quota_available = quota_info['can_launch_gpu']
+        
+        instance_rec = recommend_aws_instance_type(
+            image_width, image_height,
+            gpu_quota_available=gpu_quota_available,
+            prefer_gpu=True
+        )
+        instance_type = instance_rec['recommended_instance']
+        is_gpu = instance_rec['gpu_available']
+    else:
+        is_gpu = 'g4dn' in instance_type.lower() or 'g5' in instance_type.lower()
+    
+    # Estimate hours based on instance type
+    hours_per_cycle = hours_per_cycle_gpu if is_gpu else hours_per_cycle_cpu
+    total_hours = hours_per_cycle * num_cycles
+    
+    # Get instance cost estimate
+    cost_info = estimate_aws_instance_cost(
+        instance_type, region=region, hours=total_hours, use_spot=use_spot
+    )
+    
+    # Estimate data transfer costs (rough: $0.09/GB for first 10TB)
+    # Assume ~500MB per cycle file for 35K×35K images
+    image_area = image_width * image_height
+    file_size_gb = (image_area * 3 * 2) / (1024**3)  # 3 channels, uint16
+    total_data_gb = file_size_gb * num_cycles * 2  # Input + output
+    data_transfer_cost = total_data_gb * 0.09  # $0.09/GB
+    
+    result = {
+        'estimated_hours': total_hours,
+        'instance_type': instance_type,
+        'instance_cost': cost_info.get('estimated_cost_on_demand') or cost_info.get('estimated_cost_spot'),
+        'data_transfer_cost': data_transfer_cost,
+        'total_estimated_cost': (cost_info.get('estimated_cost_on_demand') or 0) + data_transfer_cost,
+        'recommendations': []
+    }
+    
+    # Add spot instance recommendation if not using spot
+    if not use_spot and cost_info.get('estimated_cost_spot'):
+        spot_savings = cost_info['estimated_cost_on_demand'] - cost_info['estimated_cost_spot']
+        result['recommendations'].append(
+            f'Consider Spot instances to save ~${spot_savings:.2f} (${spot_savings/total_hours:.2f}/hour)'
+        )
+    
+    # Add cost optimization recommendations
+    if result['total_estimated_cost'] > 10:
+        result['recommendations'].append(
+            'Cost exceeds $10. Consider using Spot instances or Reserved Instances for repeated runs.'
+        )
+    
+    if total_hours > 1:
+        result['recommendations'].append(
+            f'Estimated runtime: {total_hours:.2f} hours. Monitor actual usage to optimize costs.'
+        )
+    
+    return result
