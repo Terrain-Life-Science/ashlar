@@ -523,6 +523,116 @@ def apply_shift(img, dx, dy, order=None):
     return ndimage.shift(img, (dy, dx), order=order, mode='constant', cval=0.0)
 
 
+def apply_shift_tiled(img, dx, dy, tile_size=4096, order=None, progress_callback=None):
+    """
+    Apply sub-pixel shift to image using tiled processing for memory efficiency.
+    
+    Parameters
+    ----------
+    img : np.ndarray
+        Input image (uint16)
+    dx : float
+        Shift in x direction (columns)
+    dy : float
+        Shift in y direction (rows)
+    tile_size : int
+        Size of tiles for processing (default: 4096)
+    order : int, optional
+        Interpolation order (default: 1 for large images)
+    progress_callback : callable, optional
+        Callback function(current, total) for progress updates
+        
+    Returns
+    -------
+    np.ndarray
+        Shifted image (uint16)
+    """
+    h, w = img.shape
+    
+    # Determine interpolation order
+    if order is None:
+        max_dim = max(h, w)
+        if max_dim > 16384:
+            order = 1  # Linear - fastest for very large images
+        elif max_dim > 8192:
+            order = 2  # Quadratic - good balance
+        else:
+            order = 3  # Cubic - best quality
+    
+    # Padding needed for interpolation (especially for higher orders)
+    # Add padding to account for shift and interpolation boundaries
+    pad_size = max(3, int(abs(dx)) + int(abs(dy)) + 2)
+    
+    # Output array
+    output = np.zeros((h, w), dtype=np.uint16)
+    
+    # Process in tiles
+    step = tile_size
+    total_tiles = ((h + step - 1) // step) * ((w + step - 1) // step)
+    tile_count = 0
+    
+    for y0 in range(0, h, step):
+        for x0 in range(0, w, step):
+            y1 = min(y0 + step, h)
+            x1 = min(x0 + step, w)
+            tile_h = y1 - y0
+            tile_w = x1 - x0
+            
+            # Calculate source region (accounting for shift)
+            # For output tile at (y0, x0), we need source from (y0 - dy, x0 - dx)
+            # Add padding to ensure we have enough data for interpolation
+            source_y0_ideal = y0 - dy
+            source_x0_ideal = x0 - dx
+            source_y0 = max(0, int(source_y0_ideal - pad_size))
+            source_y1 = min(h, int(source_y0_ideal + tile_h + pad_size))
+            source_x0 = max(0, int(source_x0_ideal - pad_size))
+            source_x1 = min(w, int(source_x0_ideal + tile_w + pad_size))
+            
+            # Read source region
+            source_region = img[source_y0:source_y1, source_x0:source_x1].astype(np.float32) / 65535.0
+            
+            # Calculate shift relative to source region
+            # The shift needs to account for the offset between ideal and actual source position
+            rel_dy = dy + (source_y0 - source_y0_ideal)
+            rel_dx = dx + (source_x0 - source_x0_ideal)
+            
+            # Apply shift to source region
+            shifted_region = ndimage.shift(source_region, (rel_dy, rel_dx), 
+                                         order=order, mode='constant', cval=0.0)
+            
+            # Crop to tile size (accounting for padding)
+            crop_y0 = pad_size
+            crop_y1 = crop_y0 + tile_h
+            crop_x0 = pad_size
+            crop_x1 = crop_x0 + tile_w
+            
+            # Handle edge cases where crop might be out of bounds
+            if crop_y1 > shifted_region.shape[0]:
+                crop_y1 = shifted_region.shape[0]
+                crop_y0 = crop_y1 - tile_h
+            if crop_x1 > shifted_region.shape[1]:
+                crop_x1 = shifted_region.shape[1]
+                crop_x0 = crop_x1 - tile_w
+            
+            # Extract tile from shifted region
+            tile = shifted_region[crop_y0:crop_y1, crop_x0:crop_x1]
+            
+            # Convert back to uint16 and write to output
+            output[y0:y1, x0:x1] = np.clip(tile * 65535.0, 0, 65535).astype(np.uint16)
+            
+            # Clean up
+            del source_region, shifted_region, tile
+            tile_count += 1
+            
+            # Update progress
+            if progress_callback:
+                progress_callback(tile_count, total_tiles)
+            
+            gc.collect()
+    
+    return output
+
+
 def create_pyramidal_levels(img, num_levels=4):
     """Create pyramid levels by downsampling."""
     levels = [img]
@@ -703,21 +813,43 @@ def generate_synthetic_cycle(
         try:
             shifted_stack = np.zeros_like(img_stack, dtype=np.uint16)
             channel_names = ['DAPI', 'Fluorescence 1', 'Fluorescence 2']
+            
+            # Determine if we need tiled shift (for very large images)
+            # Use tiled shift if image is > 16K×16K to avoid memory issues
+            use_tiled_shift = (h > 16384 or w > 16384)
+            
             for c in range(3):
                 # Show progress for shift application
                 if is_large:
-                    print(f"    Shifting {channel_names[c]}...", end='', flush=True)
+                    if use_tiled_shift:
+                        print(f"    Shifting {channel_names[c]}...")
+                    else:
+                        print(f"    Shifting {channel_names[c]}...", end='', flush=True)
                 
-                # Convert to float64 for shift, then clip and convert back to uint16
-                # Note: shift tuple is (dy, dx) where shift[0]=dy (row), shift[1]=dx (col)
-                # apply_shift expects (dx, dy), so we pass (shift[1], shift[0])
-                # This ensures ndimage.shift receives (dy, dx) = (row_shift, col_shift) correctly
-                temp_float = img_stack[c].astype(np.float64) / 65535.0
-                shifted_float = apply_shift(temp_float, shift[1], shift[0])
-                shifted_stack[c] = np.clip(shifted_float * 65535.0, 0, 65535).astype(np.uint16)
-                del temp_float, shifted_float
+                if use_tiled_shift:
+                    # Use tiled shift for very large images
+                    def progress_cb(current, total):
+                        print_progress_bar(current, total,
+                                         prefix=f"      ",
+                                         suffix=f" ({current}/{total} tiles)")
+                    
+                    shifted_stack[c] = apply_shift_tiled(
+                        img_stack[c], shift[1], shift[0], 
+                        tile_size=4096, order=1,
+                        progress_callback=progress_cb
+                    )
+                else:
+                    # Use regular shift for smaller images
+                    # Convert to float64 for shift, then clip and convert back to uint16
+                    # Note: shift tuple is (dy, dx) where shift[0]=dy (row), shift[1]=dx (col)
+                    # apply_shift expects (dx, dy), so we pass (shift[1], shift[0])
+                    # This ensures ndimage.shift receives (dy, dx) = (row_shift, col_shift) correctly
+                    temp_float = img_stack[c].astype(np.float64) / 65535.0
+                    shifted_float = apply_shift(temp_float, shift[1], shift[0])
+                    shifted_stack[c] = np.clip(shifted_float * 65535.0, 0, 65535).astype(np.uint16)
+                    del temp_float, shifted_float
                 
-                if is_large:
+                if is_large and not use_tiled_shift:
                     print(" ✓")
                 gc.collect()
             
