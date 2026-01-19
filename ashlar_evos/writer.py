@@ -19,7 +19,8 @@ def write_pyramidal_ometiff(output_path: Path,
                             channels: List[np.ndarray],
                             pixel_size: float = 0.325,
                             channel_names: Optional[List[str]] = None,
-                            num_pyramid_levels: int = 4) -> None:
+                            num_pyramid_levels: int = 4,
+                            fast_mode: bool = False) -> None:
     """
     Write pyramidal OME-TIFF file with multiple channels.
     
@@ -38,6 +39,10 @@ def write_pyramidal_ometiff(output_path: Path,
         Names for each channel (default: Channel_0, Channel_1, etc.)
     num_pyramid_levels : int
         Number of pyramid levels to generate (default: 4)
+    fast_mode : bool
+        If True, reduce pyramid levels for very large images to speed up writing.
+        For 8x+ images: 2 levels instead of 4. For 4x+ images: 3 levels instead of 4.
+        (default: False)
     """
     if len(channels) == 0:
         raise ValueError("At least one channel required")
@@ -58,6 +63,13 @@ def write_pyramidal_ometiff(output_path: Path,
     image_area = base_shape[0] * base_shape[1]
     # Use incremental writing for images > 50M pixels (roughly 7K×7K or larger)
     use_incremental = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
+    
+    # In fast mode, reduce pyramid levels for very large images to speed up writing
+    original_num_levels = num_pyramid_levels
+    if fast_mode and image_area > 200_000_000:  # 8x and larger
+        num_pyramid_levels = min(num_pyramid_levels, 2)  # Only base + 1 pyramid level
+    elif fast_mode and image_area > 50_000_000:  # 4x and larger
+        num_pyramid_levels = min(num_pyramid_levels, 3)  # Base + 2 pyramid levels
     
     # Write OME-TIFF with pyramid
     # Use tifffile's OME-TIFF writer with subifds for pyramid levels
@@ -328,6 +340,9 @@ def write_aligned_cycle(input_file: Path,
         image_area = image_shape[0] * image_shape[1]
         process_channels_incrementally = image_area > 50_000_000  # 50M pixels threshold
         
+        # Enable fast mode for large images (8x and larger) to speed up writing
+        fast_mode = image_area > 200_000_000  # 8x and larger
+        
         if process_channels_incrementally:
             # For large images: process channels one at a time and write to temp files
             # This reduces peak memory by only holding one channel in memory at a time
@@ -411,9 +426,14 @@ def write_aligned_cycle(input_file: Path,
                     transformed_channels.append(transformed)
     
     # Write pyramidal OME-TIFF
+    # Enable fast mode for large images (8x and larger) to speed up writing
+    image_area = image_shape[0] * image_shape[1]
+    fast_mode = image_area > 200_000_000  # 8x and larger
+    
     write_pyramidal_ometiff(
         output_file,
         transformed_channels,
         pixel_size=pixel_size,
-        num_pyramid_levels=num_pyramid_levels
+        num_pyramid_levels=num_pyramid_levels,
+        fast_mode=fast_mode
     )
