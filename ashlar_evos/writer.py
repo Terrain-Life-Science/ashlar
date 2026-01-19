@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import List, Tuple, Optional
 import xml.etree.ElementTree as ET
+from scipy import ndimage
 from .metadata import OMEMetadata
 
 
@@ -161,23 +162,17 @@ def write_pyramidal_ometiff(output_path: Path,
                     # Downsample each channel from previous level (2x smaller than previous)
                     level_channels = []
                     for channel in current_level_channels:
-                        temp = channel.astype(np.float32)
-                        # Downsample by 2 in rows (2x reduction in height)
-                        # Handle odd dimensions by trimming to match sizes
-                        even_rows = temp[::2, :]
-                        odd_rows = temp[1::2, :]
-                        # Trim to match smaller size if dimensions are odd
-                        min_rows = min(even_rows.shape[0], odd_rows.shape[0])
-                        temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
-                        
-                        # Downsample by 2 in columns (2x reduction in width)
-                        # Handle odd dimensions by trimming to match sizes
-                        even_cols = temp[:, ::2]
-                        odd_cols = temp[:, 1::2]
-                        # Trim to match smaller size if dimensions are odd
-                        min_cols = min(even_cols.shape[1], odd_cols.shape[1])
-                        temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
-                        level_channels.append(temp.astype(np.uint16))
+                        # Use scipy.ndimage.zoom for much faster downsampling
+                        # zoom factor of 0.5 = 2x reduction
+                        downsampled = ndimage.zoom(
+                            channel.astype(np.float32),
+                            zoom=(0.5, 0.5),
+                            order=1,  # Linear interpolation (faster than cubic)
+                            mode='constant',
+                            cval=0.0,
+                            prefilter=False  # Skip prefiltering for speed
+                        ).astype(np.uint16)
+                        level_channels.append(downsampled)
                     
                     # Stack channels: (C, Y, X)
                     level_data = np.stack(level_channels, axis=0)
@@ -223,23 +218,17 @@ def write_pyramidal_ometiff(output_path: Path,
                 # Downsample each channel from previous level (2x smaller than previous)
                 level_channels = []
                 for channel in current_level_channels:
-                    temp = channel.astype(np.float32)
-                    # Downsample by 2 in rows (2x reduction in height)
-                    # Handle odd dimensions by trimming to match sizes
-                    even_rows = temp[::2, :]
-                    odd_rows = temp[1::2, :]
-                    # Trim to match smaller size if dimensions are odd
-                    min_rows = min(even_rows.shape[0], odd_rows.shape[0])
-                    temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
-                    
-                    # Downsample by 2 in columns (2x reduction in width)
-                    # Handle odd dimensions by trimming to match sizes
-                    even_cols = temp[:, ::2]
-                    odd_cols = temp[:, 1::2]
-                    # Trim to match smaller size if dimensions are odd
-                    min_cols = min(even_cols.shape[1], odd_cols.shape[1])
-                    temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
-                    level_channels.append(temp.astype(np.uint16))
+                    # Use scipy.ndimage.zoom for much faster downsampling
+                    # zoom factor of 0.5 = 2x reduction
+                    downsampled = ndimage.zoom(
+                        channel.astype(np.float32),
+                        zoom=(0.5, 0.5),
+                        order=1,  # Linear interpolation (faster than cubic)
+                        mode='constant',
+                        cval=0.0,
+                        prefilter=False  # Skip prefiltering for speed
+                    ).astype(np.uint16)
+                    level_channels.append(downsampled)
                 
                 # Stack channels: (C, Y, X)
                 level_data = np.stack(level_channels, axis=0)
