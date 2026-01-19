@@ -327,12 +327,43 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                     chunk = transformed[row_start:row_end, :]
                     result[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
                 
-                # Clean up temp files
+                # Clean up temp files - must close memmap arrays first on Windows
                 import os
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-                if temp_file_weight_path and os.path.exists(temp_file_weight_path):
-                    os.unlink(temp_file_weight_path)
+                import sys
+                import time
+                
+                # Close memmap arrays by deleting references and flushing
+                del transformed
+                del weight_map
+                # Force garbage collection to release file handles
+                import gc
+                gc.collect()
+                
+                # On Windows, files may still be locked briefly, so retry with delay
+                if sys.platform == 'win32':
+                    time.sleep(0.1)  # Small delay for Windows file handle release
+                
+                # Try to delete temp files with retry logic for Windows
+                max_retries = 3
+                for retry in range(max_retries):
+                    try:
+                        if temp_file_path and os.path.exists(temp_file_path):
+                            os.unlink(temp_file_path)
+                        if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                            os.unlink(temp_file_weight_path)
+                        break  # Success, exit retry loop
+                    except (PermissionError, OSError) as e:
+                        if retry < max_retries - 1:
+                            time.sleep(0.2)  # Wait a bit longer before retry
+                            gc.collect()  # Force another GC pass
+                        else:
+                            # Last retry failed, log warning but don't fail
+                            import warnings
+                            warnings.warn(
+                                f"Could not delete temporary file(s): {e}\n"
+                                f"  Files will be cleaned up automatically by the OS.",
+                                UserWarning
+                            )
                 
                 return result
             else:
@@ -341,15 +372,36 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
         except Exception:
             # Clean up temp files on error
             import os
-            if temp_file_path and os.path.exists(temp_file_path):
+            import sys
+            import time
+            import gc
+            
+            # Close memmap arrays first
+            try:
+                if 'transformed' in locals():
+                    del transformed
+                if 'weight_map' in locals():
+                    del weight_map
+                gc.collect()
+                if sys.platform == 'win32':
+                    time.sleep(0.1)
+            except Exception:
+                pass
+            
+            # Try to delete temp files with retry logic
+            max_retries = 3
+            for retry in range(max_retries):
                 try:
-                    os.unlink(temp_file_path)
-                except Exception:
-                    pass
-            if temp_file_weight_path and os.path.exists(temp_file_weight_path):
-                try:
-                    os.unlink(temp_file_weight_path)
-                except Exception:
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                    if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                        os.unlink(temp_file_weight_path)
+                    break
+                except (PermissionError, OSError):
+                    if retry < max_retries - 1:
+                        time.sleep(0.2)
+                        gc.collect()
+                    # On last retry, just ignore the error
                     pass
             raise
     else:
