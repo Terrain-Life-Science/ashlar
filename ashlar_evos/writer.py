@@ -104,7 +104,12 @@ def write_pyramidal_ometiff(output_path: Path,
                 )
                 
                 # Copy channels into stacked array in chunks to avoid loading all into memory
-                chunk_rows = 1024  # Process 1024 rows at a time
+                # Use larger chunks for faster copying
+                if isinstance(channels[0], np.memmap):
+                    chunk_rows = 2048  # Larger chunks for memmap (was 1024)
+                else:
+                    chunk_rows = 4096  # Even larger for regular arrays
+                
                 for ch_idx, channel in enumerate(channels):
                     for row_start in range(0, base_shape[0], chunk_rows):
                         row_end = min(row_start + chunk_rows, base_shape[0])
