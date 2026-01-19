@@ -256,14 +256,14 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
             temp_file.close()
             transformed = np.memmap(
                 temp_file.name,
-                dtype=np.float64,
+                dtype=np.float32,
                 mode='w+',
                 shape=(h, w)
             )
             transformed[:] = 0.0
             temp_file_path = temp_file.name
         else:
-            transformed = np.zeros((h, w), dtype=np.float64)
+            transformed = np.zeros((h, w), dtype=np.float32)
             temp_file_path = None
         
         # Initialize weight map for blending
@@ -272,14 +272,14 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
             temp_file_weight.close()
             weight_map = np.memmap(
                 temp_file_weight.name,
-                dtype=np.float64,
+                dtype=np.float32,
                 mode='w+',
                 shape=(h, w)
             )
             weight_map[:] = 0.0
             temp_file_weight_path = temp_file_weight.name
         else:
-            weight_map = np.zeros((h, w), dtype=np.float64)
+            weight_map = np.zeros((h, w), dtype=np.float32)
             temp_file_weight_path = None
         
         try:
@@ -296,7 +296,7 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                 th, tw = transformed_tile.shape
                 
                 # Create weight map: 1.0 in center, feathering to 0.5 at edges
-                tile_weight = np.ones((th, tw), dtype=np.float64)
+                tile_weight = np.ones((th, tw), dtype=np.float32)
                 feather_size = min(tile_overlap // 2, min(th, tw) // 4)
                 
                 if feather_size > 0:
@@ -309,7 +309,7 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                         tile_weight[:, tw - 1 - i] = np.minimum(tile_weight[:, tw - 1 - i], weight)
                 
                 # Accumulate weighted tile values
-                transformed[y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
+                transformed[y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float32) * tile_weight
                 weight_map[y0:y0+th, x0:x0+tw] += tile_weight
             
             # Normalize by weight map to get final blended result
@@ -674,7 +674,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                 # Create memory-mapped array
                 transformed_ch = np.memmap(
                     temp_file.name,
-                    dtype=np.float64,
+                    dtype=np.float32,
                     mode='w+',
                     shape=(h, w)
                 )
@@ -689,7 +689,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                 # Create memory-mapped array for weight map
                 weight_map = np.memmap(
                     temp_file_weight.name,
-                    dtype=np.float64,
+                    dtype=np.float32,
                     mode='w+',
                     shape=(h, w)
                 )
@@ -697,8 +697,8 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                 weight_maps.append(weight_map)
         else:
             # For smaller images, use regular arrays
-            transformed_channels = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
-            weight_maps = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
+            transformed_channels = [np.zeros((h, w), dtype=np.float32) for _ in range(num_channels)]
+            weight_maps = [np.zeros((h, w), dtype=np.float32) for _ in range(num_channels)]
         
         # Process each channel
         for channel_idx in range(num_channels):
@@ -716,7 +716,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                 
                 # Create weight map: 1.0 in center, feathering to 0.5 at edges
                 # This ensures smooth blending in overlap regions
-                tile_weight = np.ones((th, tw), dtype=np.float64)
+                tile_weight = np.ones((th, tw), dtype=np.float32)
                 feather_size = min(tile_overlap // 2, min(th, tw) // 4)
                 
                 if feather_size > 0:
@@ -741,7 +741,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                         tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
                 
                 # Accumulate weighted tile values
-                transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
+                transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float32) * tile_weight
                 weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
             
             # Normalize by weight map to get final blended result
@@ -767,7 +767,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                     shape=(h, w)
                 )
                 
-                # Convert float64 memmap to uint16 memmap in chunks to avoid OOM
+                # Convert float32 memmap to uint16 memmap in chunks to avoid OOM
                 # Process in row chunks to minimize memory usage
                 chunk_rows = 1024  # Process 1024 rows at a time
                 for row_start in range(0, h, chunk_rows):
@@ -775,7 +775,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                     chunk = transformed_channels[channel_idx][row_start:row_end, :]
                     transformed_uint16[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
                 
-                # Replace float64 memmap with uint16 memmap
+                # Replace float32 memmap with uint16 memmap
                 transformed_channels[channel_idx] = transformed_uint16
             else:
                 transformed_channels[channel_idx] = np.clip(
