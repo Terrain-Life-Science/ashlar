@@ -1498,7 +1498,7 @@ class EvosRegistrationPipeline:
         print()
         
         # Print timing summary
-        self._print_clean(f"Total time: {self.performance_monitor.metrics.total_time_seconds:.2f} seconds")
+        self._print_clean(f"Total time: {self.performance_monitor.metrics.elapsed_time():.2f} seconds")
         self._print_clean(f"Transforms saved to: {output_path}")
         print()
         
