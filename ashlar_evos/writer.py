@@ -138,8 +138,8 @@ def write_pyramidal_ometiff(output_path: Path,
                     resolution=(resolution_cm, resolution_cm),
                     resolutionunit="centimeter",
                     photometric="minisblack",
-                    compression="lzw",
-                    predictor=False,
+                    compression="adobe_deflate",
+                    predictor=True,
                 )
                 
                 # Clean up
@@ -162,8 +162,8 @@ def write_pyramidal_ometiff(output_path: Path,
                     resolution=(resolution_cm, resolution_cm),
                     resolutionunit="centimeter",
                     photometric="minisblack",
-                    compression="lzw",
-                    predictor=False,
+                    compression="adobe_deflate",
+                    predictor=True,
                 )
                 
                 # Free base level data immediately after writing to reduce memory usage
