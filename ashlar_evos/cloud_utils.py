@@ -120,13 +120,16 @@ def calculate_optimal_pyramid_level(
 def optimize_worker_count(
     num_tiles: int,
     num_workers: Optional[int] = None,
-    is_cloud: bool = False
+    is_cloud: bool = False,
+    image_width: Optional[int] = None,
+    image_height: Optional[int] = None
 ) -> int:
     """
     Optimize worker count for parallel tile processing.
     
     For cloud deployments, leaves cores free for I/O operations.
     For local deployments, uses all available cores efficiently.
+    For very large images (16x scale), limits workers to prevent OOM.
     
     Parameters
     ----------
@@ -137,6 +140,10 @@ def optimize_worker_count(
     is_cloud : bool
         Whether running on cloud infrastructure (default: False)
         If True, leaves 1-2 cores free for I/O
+    image_width : int, optional
+        Image width in pixels (for size-based worker limiting)
+    image_height : int, optional
+        Image height in pixels (for size-based worker limiting)
         
     Returns
     -------
@@ -145,6 +152,29 @@ def optimize_worker_count(
     """
     if num_workers is None:
         num_workers = os.cpu_count() or 1
+    
+    # Image-size-based worker limits for very large images
+    # This prevents OOM crashes on 16x images (32768×32768)
+    if image_width is not None and image_height is not None:
+        image_dimension = max(image_width, image_height)
+        
+        # For 16x images (32768×32768), limit to 2 workers max
+        # For 8x images (16384×16384), limit to 4 workers max
+        # This prevents excessive memory usage from parallel tile loading
+        if image_dimension >= 32768:
+            # 16x scale: very conservative worker count
+            max_workers_by_size = 2
+        elif image_dimension >= 16384:
+            # 8x scale: moderate worker count
+            max_workers_by_size = 4
+        elif image_dimension >= 8192:
+            # 4x scale: can use more workers but still be conservative
+            max_workers_by_size = min(6, num_workers)
+        else:
+            # Smaller images: no size-based limit
+            max_workers_by_size = num_workers
+        
+        num_workers = min(num_workers, max_workers_by_size)
     
     # Don't exceed tile count (no benefit from more workers than tiles)
     if num_tiles > 0:
@@ -214,8 +244,26 @@ def estimate_memory_usage(
     parallel_memory_mb = worker_memory_mb * num_workers
     
     # Base memory (readers, transforms, metadata, etc.)
-    # Rough estimate based on image size
-    base_memory_mb = 200 + (image_width * image_height * num_channels * 2) / (1024 * 1024) * 0.1
+    # Improved estimate: accounts for reader overhead, metadata, and intermediate arrays
+    # For large images, reader overhead is more significant
+    image_area = image_width * image_height
+    image_memory_mb = (image_area * num_channels * 2) / (1024 * 1024)  # Full image size in MB
+    
+    # Base overhead: 200 MB for Python, libraries, metadata
+    # Reader overhead: scales with image size (more significant for large images)
+    # Use 5% of image size for reader overhead (was 10% but that was too low)
+    # For very large images (>1GB), add additional overhead
+    if image_memory_mb > 1000:
+        # Very large images: 3% base + 50 MB additional overhead
+        reader_overhead_mb = image_memory_mb * 0.03 + 50
+    elif image_memory_mb > 500:
+        # Large images: 4% base + 25 MB additional overhead
+        reader_overhead_mb = image_memory_mb * 0.04 + 25
+    else:
+        # Smaller images: 5% base overhead
+        reader_overhead_mb = image_memory_mb * 0.05
+    
+    base_memory_mb = 200 + reader_overhead_mb
     
     return {
         'per_tile_mb': tile_memory_mb,

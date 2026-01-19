@@ -337,11 +337,32 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     import multiprocessing as mp
     import os
     
-    # Optimize worker count for cloud deployments
+    # Get image dimensions from grid for size-based worker limiting
+    # This helps prevent OOM on very large images (16x scale)
+    # The grid stores image_shape as (height, width)
+    if hasattr(grid, 'image_shape') and grid.image_shape:
+        image_height, image_width = grid.image_shape
+    else:
+        # Fallback: try to get from reader
+        try:
+            ref_shape = ref_reader.get_shape_at_level(0)
+            image_height, image_width = ref_shape
+        except Exception:
+            # Last resort: estimate from grid bounds
+            if grid:
+                image_width = max(tile.x + tile.width for tile in grid)
+                image_height = max(tile.y + tile.height for tile in grid)
+            else:
+                image_width = None
+                image_height = None
+    
+    # Optimize worker count for cloud deployments with image size information
     num_workers = optimize_worker_count(
         num_tiles=len(grid),
         num_workers=num_workers,
-        is_cloud=False  # Can be made configurable in the future
+        is_cloud=False,  # Can be made configurable in the future
+        image_width=image_width,
+        image_height=image_height
     )
     
     # For small grids or single worker, use sequential processing
