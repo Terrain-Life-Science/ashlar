@@ -406,7 +406,12 @@ class EvosRegistrationPipeline:
     
     def _print_status(self, message: str, status: str = "✓"):
         """Print status message with indicator."""
-        print(f"  {status} {message}")
+        try:
+            print(f"  {status} {message}")
+        except UnicodeEncodeError:
+            # Fallback for Windows console that can't encode Unicode characters
+            status_ascii = "[OK]" if status == "✓" else status
+            print(f"  {status_ascii} {message}")
     
     def _print_progress(self, current: int, total: int, item_name: str = "items"):
         """Print progress indicator."""

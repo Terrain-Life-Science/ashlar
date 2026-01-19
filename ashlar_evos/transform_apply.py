@@ -198,9 +198,13 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                                transform_matrix: np.ndarray,
                                level: int = 0,
                                order: int = 1,
-                               use_gpu: bool = False) -> np.ndarray:
+                               use_gpu: bool = False,
+                               tile_size: int = 4096,
+                               tile_overlap: int = 512) -> np.ndarray:
     """
     Apply transform to a single channel from an image.
+    
+    For large images, uses tiled processing to avoid OOM errors.
     
     Parameters
     ----------
@@ -214,24 +218,153 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
         Pyramid level to process (default: 0 = full resolution)
     order : int
         Interpolation order
+    use_gpu : bool
+        Use GPU acceleration if available
+    tile_size : int
+        Tile size for tiled processing (default: 4096)
+    tile_overlap : int
+        Tile overlap for tiled processing (default: 512)
         
     Returns
     -------
     np.ndarray
         Transformed channel image
     """
-    # Read channel (with optional memory mapping)
-    # Note: use_memmap parameter not yet added to function signature for backward compatibility
-    image = reader.get_channel(level, channel, use_memmap=False)
+    # Get image shape to determine if we need tiled processing
+    image_shape = reader.get_shape_at_level(level)
+    h, w = image_shape
+    image_area = h * w
     
-    # For transform, we need the actual array (convert zarr if needed)
-    if hasattr(image, '__array__'):
-        image = np.asarray(image)
+    # Use tiled processing for images larger than 50M pixels (roughly 7K×7K)
+    # This prevents OOM errors on large images like 16x scale (32K×32K)
+    use_tiled = image_area > 50_000_000
     
-    # Apply transform
-    transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
-    
-    return transformed
+    if use_tiled:
+        # Use tiled processing to avoid loading entire image into memory
+        from .tile_grid import TileGrid
+        
+        # Create tile grid
+        grid = TileGrid(image_shape, tile_size=tile_size, overlap=tile_overlap)
+        
+        # Determine if we need memory-mapped output array
+        use_memmap = image_area > 100_000_000  # 100M pixels threshold
+        
+        # Initialize output array
+        if use_memmap:
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+            temp_file.close()
+            transformed = np.memmap(
+                temp_file.name,
+                dtype=np.float64,
+                mode='w+',
+                shape=(h, w)
+            )
+            transformed[:] = 0.0
+            temp_file_path = temp_file.name
+        else:
+            transformed = np.zeros((h, w), dtype=np.float64)
+            temp_file_path = None
+        
+        # Initialize weight map for blending
+        if use_memmap:
+            temp_file_weight = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+            temp_file_weight.close()
+            weight_map = np.memmap(
+                temp_file_weight.name,
+                dtype=np.float64,
+                mode='w+',
+                shape=(h, w)
+            )
+            weight_map[:] = 0.0
+            temp_file_weight_path = temp_file_weight.name
+        else:
+            weight_map = np.zeros((h, w), dtype=np.float64)
+            temp_file_weight_path = None
+        
+        try:
+            # Process each tile
+            for tile_info in grid:
+                # Apply transform to tile
+                transformed_tile = apply_transform_to_tile(
+                    reader, channel, tile_info, transform_matrix,
+                    level=level, order=order, use_gpu=use_gpu
+                )
+                
+                # Create weight map for this tile (feather edges for smooth blending)
+                y0, x0 = tile_info.y, tile_info.x
+                th, tw = transformed_tile.shape
+                
+                # Create weight map: 1.0 in center, feathering to 0.5 at edges
+                tile_weight = np.ones((th, tw), dtype=np.float64)
+                feather_size = min(tile_overlap // 2, min(th, tw) // 4)
+                
+                if feather_size > 0:
+                    # Feather edges
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+                        tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                        tile_weight[:, i] = np.minimum(tile_weight[:, i], weight)
+                        tile_weight[:, tw - 1 - i] = np.minimum(tile_weight[:, tw - 1 - i], weight)
+                
+                # Accumulate weighted tile values
+                transformed[y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
+                weight_map[y0:y0+th, x0:x0+tw] += tile_weight
+            
+            # Normalize by weight map to get final blended result
+            mask = weight_map > 0
+            transformed[mask] /= weight_map[mask]
+            transformed[~mask] = 0
+            
+            # Convert to uint16
+            if use_memmap:
+                # Convert in chunks to avoid OOM
+                chunk_rows = 1024
+                result = np.zeros((h, w), dtype=np.uint16)
+                for row_start in range(0, h, chunk_rows):
+                    row_end = min(row_start + chunk_rows, h)
+                    chunk = transformed[row_start:row_end, :]
+                    result[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
+                
+                # Clean up temp files
+                import os
+                if temp_file_path and os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                    os.unlink(temp_file_weight_path)
+                
+                return result
+            else:
+                return np.clip(transformed, 0, 65535).astype(np.uint16)
+        
+        except Exception:
+            # Clean up temp files on error
+            import os
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception:
+                    pass
+            if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                try:
+                    os.unlink(temp_file_weight_path)
+                except Exception:
+                    pass
+            raise
+    else:
+        # For smaller images, use the original approach
+        # Read channel (with optional memory mapping)
+        image = reader.get_channel(level, channel, use_memmap=False)
+        
+        # For transform, we need the actual array (convert zarr if needed)
+        if hasattr(image, '__array__'):
+            image = np.asarray(image)
+        
+        # Apply transform
+        transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
+        
+        return transformed
 
 
 def apply_transform_to_all_channels(reader: PyramidalOMETiffReader,

@@ -459,7 +459,7 @@ Examples:
         with open(report_path, 'w') as f:
             json.dump(combined_report, f, indent=2)
         
-        if args.verbose:
+        if not args.quiet:
             print(f"\n[OK] Combined report saved to: {report_path}")
         else:
             logger.info(f"Combined report saved to: {report_path}")
