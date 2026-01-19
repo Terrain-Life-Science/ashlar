@@ -6,6 +6,8 @@ Writes multi-resolution pyramidal OME-TIFF files with multiple channels.
 
 import numpy as np
 import tifffile
+import tempfile
+import os
 from pathlib import Path
 from typing import List, Tuple, Optional
 import xml.etree.ElementTree as ET
@@ -82,24 +84,72 @@ def write_pyramidal_ometiff(output_path: Path,
             # This avoids keeping all pyramid levels in memory simultaneously
             
             # Write base level (Level 0)
-            base_level_data = np.stack(channels, axis=0)  # (C, Y, X)
-            tif.write(
-                data=base_level_data,
-                metadata=metadata,
-                software="Ashlar-Evos",
-                shape=base_level_data.shape,
-                subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
-                dtype=np.uint16,
-                tile=(tile_size, tile_size),
-                resolution=(resolution_cm, resolution_cm),
-                resolutionunit="centimeter",
-                photometric="minisblack",
-                compression="adobe_deflate",
-                predictor=True,
-            )
+            # Check if channels are memmap arrays (for large images like 16x)
+            is_memmap = any(isinstance(ch, np.memmap) for ch in channels)
             
-            # Free base level data immediately after writing to reduce memory usage
-            del base_level_data
+            if is_memmap and image_area > 50_000_000:
+                # Large image with memmap: stack in chunks to avoid OOM
+                num_channels = len(channels)
+                # Create temporary memmap file for stacked data
+                temp_stacked_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_stacked_path = temp_stacked_file.name
+                temp_stacked_file.close()
+                
+                base_level_data = np.memmap(
+                    temp_stacked_path,
+                    dtype=np.uint16,
+                    mode='w+',
+                    shape=(num_channels, base_shape[0], base_shape[1])
+                )
+                
+                # Copy channels into stacked array in chunks to avoid loading all into memory
+                chunk_rows = 1024  # Process 1024 rows at a time
+                for ch_idx, channel in enumerate(channels):
+                    for row_start in range(0, base_shape[0], chunk_rows):
+                        row_end = min(row_start + chunk_rows, base_shape[0])
+                        base_level_data[ch_idx, row_start:row_end, :] = channel[row_start:row_end, :]
+                
+                tif.write(
+                    data=base_level_data,
+                    metadata=metadata,
+                    software="Ashlar-Evos",
+                    shape=base_level_data.shape,
+                    subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
+                    dtype=np.uint16,
+                    tile=(tile_size, tile_size),
+                    resolution=(resolution_cm, resolution_cm),
+                    resolutionunit="centimeter",
+                    photometric="minisblack",
+                    compression="adobe_deflate",
+                    predictor=True,
+                )
+                
+                # Clean up
+                del base_level_data
+                try:
+                    os.unlink(temp_stacked_path)
+                except Exception:
+                    pass
+            else:
+                # Small images or regular arrays: stack normally
+                base_level_data = np.stack(channels, axis=0)  # (C, Y, X)
+                tif.write(
+                    data=base_level_data,
+                    metadata=metadata,
+                    software="Ashlar-Evos",
+                    shape=base_level_data.shape,
+                    subifds=num_pyramid_levels - 1 if num_pyramid_levels > 1 else 0,
+                    dtype=np.uint16,
+                    tile=(tile_size, tile_size),
+                    resolution=(resolution_cm, resolution_cm),
+                    resolutionunit="centimeter",
+                    photometric="minisblack",
+                    compression="adobe_deflate",
+                    predictor=True,
+                )
+                
+                # Free base level data immediately after writing to reduce memory usage
+                del base_level_data
             
             # Generate and write pyramid levels incrementally
             if num_pyramid_levels > 1:

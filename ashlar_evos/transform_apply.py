@@ -567,21 +567,41 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
             transformed_channels[channel_idx][~mask] = 0
             
             # Convert back to uint16
-            # For memmap arrays, we need to copy to a regular array
+            # For memmap arrays, convert in chunks to avoid OOM
             if use_memmap:
-                # Convert memmap to regular array
-                transformed_uint16 = np.clip(
-                    transformed_channels[channel_idx], 0, 65535
-                ).astype(np.uint16)
+                # Create new uint16 memmap file for this channel
+                temp_file_uint16 = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_files.append(temp_file_uint16.name)
+                temp_file_uint16.close()
+                
+                # Create uint16 memmap array
+                transformed_uint16 = np.memmap(
+                    temp_file_uint16.name,
+                    dtype=np.uint16,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                
+                # Convert float64 memmap to uint16 memmap in chunks to avoid OOM
+                # Process in row chunks to minimize memory usage
+                chunk_rows = 1024  # Process 1024 rows at a time
+                for row_start in range(0, h, chunk_rows):
+                    row_end = min(row_start + chunk_rows, h)
+                    chunk = transformed_channels[channel_idx][row_start:row_end, :]
+                    transformed_uint16[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
+                
+                # Replace float64 memmap with uint16 memmap
                 transformed_channels[channel_idx] = transformed_uint16
             else:
                 transformed_channels[channel_idx] = np.clip(
                     transformed_channels[channel_idx], 0, 65535
                 ).astype(np.uint16)
         
-        # Convert memmap arrays to regular arrays for return
+        # For memmap arrays, return them as-is (already uint16 memmaps)
+        # Writer must handle them carefully to avoid loading all into memory
         if use_memmap:
-            result = [np.array(ch, dtype=np.uint16) for ch in transformed_channels]
+            # Return memmap arrays directly - writer will handle them efficiently
+            result = transformed_channels  # Already uint16 memmaps
         else:
             result = transformed_channels
         
