@@ -2,8 +2,8 @@
   "runs": [
     {
       "summary": {
-        "total_time_seconds": 2.0603394508361816,
-        "total_time_formatted": "2.06 seconds",
+        "total_time_seconds": 1.9987571239471436,
+        "total_time_formatted": "2.00 seconds",
         "num_cycles": 3,
         "average_rmse": 2.176208866300266e-13,
         "average_mean_residual": 2.176208866300266e-13,
@@ -13,16 +13,16 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-18T16:48:08.486933",
-        "end_time": "2026-01-18T16:48:10.547273",
-        "elapsed_time_seconds": 2.0603394508361816,
+        "start_time": "2026-01-18T23:09:46.323099",
+        "end_time": "2026-01-18T23:09:48.321856",
+        "elapsed_time_seconds": 1.9987571239471436,
         "phases": {
-          "Coarse Alignment": 0.425325870513916,
-          "Fine Registration - Cycle 1": 0.3458094596862793,
-          "Fine Registration - Cycle 2": 0.3431084156036377,
-          "Transform Fitting - Cycle 1": 0.0038912296295166016,
-          "Transform Fitting - Cycle 2": 0.0035796165466308594,
-          "Apply Transform - Cycle 0": 0.9236044883728027
+          "Coarse Alignment": 0.33571457862854004,
+          "Fine Registration - Cycle 1": 0.34671807289123535,
+          "Fine Registration - Cycle 2": 0.3500800132751465,
+          "Transform Fitting - Cycle 1": 0.007753849029541016,
+          "Transform Fitting - Cycle 2": 0.00458526611328125,
+          "Apply Transform - Cycle 0": 0.9313750267028809
         },
         "cpu_cores_used": 28,
         "cpu_threads_used": 28,
@@ -36,10 +36,10 @@
           "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\1x\\cycle_02.ome.tif": 26.682896614074707
         },
         "output_file_sizes_mb": {
-          "output\\aligned_output_1x\\aligned_cycle_00.ome.tif": 25.169970512390137
+          "output\\aligned_output_1x\\aligned_cycle_00.ome.tif": 25.28474712371826
         },
         "total_input_size_mb": 78.59024715423584,
-        "total_output_size_mb": 25.169970512390137
+        "total_output_size_mb": 25.28474712371826
       },
       "accuracy_by_cycle": [
         {
@@ -131,8 +131,8 @@
     },
     {
       "summary": {
-        "total_time_seconds": 8.8930344581604,
-        "total_time_formatted": "8.89 seconds",
+        "total_time_seconds": 9.067414283752441,
+        "total_time_formatted": "9.07 seconds",
         "num_cycles": 3,
         "average_rmse": 2.8284269561603996,
         "average_mean_residual": 2.8284269561603455,
@@ -142,16 +142,16 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-18T16:48:10.561171",
-        "end_time": "2026-01-18T16:48:19.454206",
-        "elapsed_time_seconds": 8.8930344581604,
+        "start_time": "2026-01-18T23:09:48.340416",
+        "end_time": "2026-01-18T23:09:57.407831",
+        "elapsed_time_seconds": 9.067414283752441,
         "phases": {
-          "Coarse Alignment": 0.028043270111083984,
-          "Fine Registration - Cycle 1": 1.785175085067749,
-          "Fine Registration - Cycle 2": 1.7740442752838135,
-          "Transform Fitting - Cycle 1": 0.0030434131622314453,
-          "Transform Fitting - Cycle 2": 0.0034456253051757812,
-          "Apply Transform - Cycle 0": 5.28563380241394
+          "Coarse Alignment": 0.031383514404296875,
+          "Fine Registration - Cycle 1": 1.6910040378570557,
+          "Fine Registration - Cycle 2": 1.6522259712219238,
+          "Transform Fitting - Cycle 1": 0.00370025634765625,
+          "Transform Fitting - Cycle 2": 0.004251956939697266,
+          "Apply Transform - Cycle 0": 5.664022207260132
         },
         "cpu_cores_used": 28,
         "cpu_threads_used": 28,
@@ -165,10 +165,10 @@
           "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\2x\\cycle_02.ome.tif": 106.1249303817749
         },
         "output_file_sizes_mb": {
-          "output\\aligned_output_2x\\aligned_cycle_00.ome.tif": 98.91466808319092
+          "output\\aligned_output_2x\\aligned_cycle_00.ome.tif": 99.42776584625244
         },
         "total_input_size_mb": 311.10696506500244,
-        "total_output_size_mb": 98.91466808319092
+        "total_output_size_mb": 99.42776584625244
       },
       "accuracy_by_cycle": [
         {
@@ -260,8 +260,8 @@
     },
     {
       "summary": {
-        "total_time_seconds": 28.24212884902954,
-        "total_time_formatted": "28.24 seconds",
+        "total_time_seconds": 31.368398666381836,
+        "total_time_formatted": "31.37 seconds",
         "num_cycles": 3,
         "average_rmse": 2.8334912878020315,
         "average_mean_residual": 2.700609204782707,
@@ -271,16 +271,16 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-18T16:48:19.471762",
-        "end_time": "2026-01-18T16:48:47.713891",
-        "elapsed_time_seconds": 28.24212884902954,
+        "start_time": "2026-01-18T23:09:57.453127",
+        "end_time": "2026-01-18T23:10:28.821526",
+        "elapsed_time_seconds": 31.368398666381836,
         "phases": {
-          "Coarse Alignment": 0.0558164119720459,
-          "Fine Registration - Cycle 1": 6.848109483718872,
-          "Fine Registration - Cycle 2": 6.847315788269043,
-          "Transform Fitting - Cycle 1": 0.0037953853607177734,
-          "Transform Fitting - Cycle 2": 0.0038466453552246094,
-          "Apply Transform - Cycle 0": 14.46896743774414
+          "Coarse Alignment": 0.08439970016479492,
+          "Fine Registration - Cycle 1": 4.084717512130737,
+          "Fine Registration - Cycle 2": 3.5337941646575928,
+          "Transform Fitting - Cycle 1": 0.009354114532470703,
+          "Transform Fitting - Cycle 2": 0.007993221282958984,
+          "Apply Transform - Cycle 0": 23.58011269569397
         },
         "cpu_cores_used": 28,
         "cpu_threads_used": 28,
@@ -294,10 +294,10 @@
           "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\4x\\cycle_02.ome.tif": 424.04587841033936
         },
         "output_file_sizes_mb": {
-          "output\\aligned_output_4x\\aligned_cycle_00.ome.tif": 393.53032970428467
+          "output\\aligned_output_4x\\aligned_cycle_00.ome.tif": 395.6085367202759
         },
         "total_input_size_mb": 1240.8721704483032,
-        "total_output_size_mb": 393.53032970428467
+        "total_output_size_mb": 395.6085367202759
       },
       "accuracy_by_cycle": [
         {
@@ -389,29 +389,27 @@
     },
     {
       "summary": {
-        "total_time_seconds": 496.6503801345825,
-        "total_time_formatted": "8m 16.65s",
+        "total_time_seconds": 121.10995578765869,
+        "total_time_formatted": "2m 1.11s",
         "num_cycles": 3,
-        "average_rmse": 1.5532039564583802,
-        "average_mean_residual": 1.4567310915135587,
-        "average_shift_x": -8.599999713897706,
-        "average_shift_y": -4.8999999284744264,
-        "average_std_shift_x": 1.5999998092651366,
-        "average_std_shift_y": 1.6
+        "average_rmse": 1.5352492593439517,
+        "average_mean_residual": 1.3766496225295015,
+        "average_shift_x": -8.828571115221296,
+        "average_shift_y": -5.128571357045855,
+        "average_std_shift_x": 1.3997082575892836,
+        "average_std_shift_y": 1.3997084244475306
       },
       "performance": {
-        "start_time": "2026-01-18T16:48:47.738151",
-        "end_time": "2026-01-18T16:57:04.388531",
-        "elapsed_time_seconds": 496.6503801345825,
+        "start_time": "2026-01-18T23:10:28.838094",
+        "end_time": "2026-01-18T23:12:29.948050",
+        "elapsed_time_seconds": 121.10995578765869,
         "phases": {
-          "Coarse Alignment": 0.7057623863220215,
-          "Fine Registration - Cycle 1": 28.384933710098267,
-          "Fine Registration - Cycle 2": 27.680986166000366,
-          "Transform Fitting - Cycle 1": 0.004037380218505859,
-          "Transform Fitting - Cycle 2": 0.004683017730712891,
-          "Apply Transform - Cycle 0": 149.97566485404968,
-          "Apply Transform - Cycle 1": 153.7985396385193,
-          "Apply Transform - Cycle 2": 136.07245302200317
+          "Coarse Alignment": 0.6863100528717041,
+          "Fine Registration - Cycle 1": 12.196593999862671,
+          "Fine Registration - Cycle 2": 12.553112268447876,
+          "Transform Fitting - Cycle 1": 0.007309913635253906,
+          "Transform Fitting - Cycle 2": 0.006276607513427734,
+          "Apply Transform - Cycle 0": 95.63610863685608
         },
         "cpu_cores_used": 28,
         "cpu_threads_used": 28,
@@ -425,12 +423,10 @@
           "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\8x\\cycle_02.ome.tif": 1696.0274477005005
         },
         "output_file_sizes_mb": {
-          "output\\aligned_output_8x\\aligned_cycle_00.ome.tif": 1571.9967737197876,
-          "output\\aligned_output_8x\\aligned_cycle_01.ome.tif": 1639.0530042648315,
-          "output\\aligned_output_8x\\aligned_cycle_02.ome.tif": 1659.6134386062622
+          "output\\aligned_output_8x\\aligned_cycle_00.ome.tif": 1481.283091545105
         },
         "total_input_size_mb": 4954.97754573822,
-        "total_output_size_mb": 4870.663216590881
+        "total_output_size_mb": 1481.283091545105
       },
       "accuracy_by_cycle": [
         {
@@ -466,20 +462,20 @@
             "y": 0.0
           },
           "coarse_error": 0.3949693441390991,
-          "num_tiles": 25,
-          "num_inliers": 25,
+          "num_tiles": 49,
+          "num_inliers": 49,
           "inlier_ratio": 1.0,
           "transform_type": "similarity",
           "transform_params": [
-            -2.4999999999934586,
-            1.7999999523118468,
-            3.330669073875469e-16,
-            1.0000000000000002
+            -2.499999999994334,
+            1.7999999523049923,
+            -5.551115123125781e-16,
+            1.0000000000000004
           ],
-          "rmse": 7.097847223457416e-12,
-          "mean_residual": 6.6698379429950264e-12,
-          "max_residual": 1.0951766470309208e-11,
-          "min_residual": 2.0463630789890885e-12,
+          "rmse": 1.988646433126668e-11,
+          "mean_residual": 1.952738786152079e-11,
+          "max_residual": 2.5270208406163518e-11,
+          "min_residual": 1.321899785921108e-11,
           "mean_shift_x": -2.5,
           "mean_shift_y": 1.7999999523162842,
           "std_shift_x": 0.0,
@@ -492,24 +488,24 @@
             "y": -8.0
           },
           "coarse_error": 0.3322678804397583,
-          "num_tiles": 25,
-          "num_inliers": 25,
+          "num_tiles": 49,
+          "num_inliers": 49,
           "inlier_ratio": 1.0,
           "transform_type": "similarity",
           "transform_params": [
-            -10.320127776680295,
-            -7.220128158160634,
-            0.0,
-            0.9995139524534907
+            -11.890338683965167,
+            -8.79033911994266,
+            -2.843160115369339e-14,
+            0.9996520870127604
           ],
-          "rmse": 3.1064079129096624,
-          "mean_residual": 2.9134621830204477,
-          "max_residual": 4.5855192738518555,
-          "min_residual": 0.3415849571833333,
-          "mean_shift_x": -14.69999942779541,
-          "mean_shift_y": -11.599999809265137,
-          "std_shift_x": 3.1999996185302733,
-          "std_shift_y": 3.2
+          "rmse": 3.070498518668017,
+          "mean_residual": 2.7532992450394755,
+          "max_residual": 5.833253703821731,
+          "min_residual": 0.1902199746743655,
+          "mean_shift_x": -15.157142230442592,
+          "mean_shift_y": -12.057142666407994,
+          "std_shift_x": 2.7994165151785673,
+          "std_shift_y": 2.7994168488950613
         }
       ],
       "scale_factor": 8.0,
@@ -519,15 +515,149 @@
       },
       "input_directory": "synthetic_test_images\\8x",
       "output_directory": "output\\aligned_output_8x"
+    },
+    {
+      "summary": {
+        "total_time_seconds": 3705.825437068939,
+        "total_time_formatted": "1h 1m 45.83s",
+        "num_cycles": 3,
+        "average_rmse": 1.8999063521110267,
+        "average_mean_residual": 1.4998374012050104,
+        "average_shift_x": -1.4315789781118695,
+        "average_shift_y": 14.20526351426777,
+        "average_std_shift_x": 1.84135328482775,
+        "average_std_shift_y": 1.1029978257832065
+      },
+      "performance": {
+        "start_time": "2026-01-18T23:12:29.971200",
+        "end_time": "2026-01-19T00:14:15.796637",
+        "elapsed_time_seconds": 3705.825437068939,
+        "phases": {
+          "Coarse Alignment": 2.878840208053589,
+          "Fine Registration - Cycle 1": 73.33317041397095,
+          "Fine Registration - Cycle 2": 73.66443943977356,
+          "Transform Fitting - Cycle 1": 0.017383337020874023,
+          "Transform Fitting - Cycle 2": 0.01115274429321289,
+          "Apply Transform - Cycle 0": 1310.4375920295715,
+          "Apply Transform - Cycle 1": 1147.5790166854858,
+          "Apply Transform - Cycle 2": 1097.8776760101318
+        },
+        "cpu_cores_used": 28,
+        "cpu_threads_used": 28,
+        "peak_memory_mb": 0.0,
+        "current_memory_mb": 0.0,
+        "gpu_available": false,
+        "gpu_cores_used": 0,
+        "input_file_sizes_mb": {
+          "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_00.ome.tif": 6303.1091203689575,
+          "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_01.ome.tif": 6745.201004981995,
+          "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_02.ome.tif": 6598.104138374329
+        },
+        "output_file_sizes_mb": {
+          "output\\aligned_output_16x\\aligned_cycle_00.ome.tif": 5924.180733680725,
+          "output\\aligned_output_16x\\aligned_cycle_01.ome.tif": 6214.871716499329,
+          "output\\aligned_output_16x\\aligned_cycle_02.ome.tif": 6100.403775215149
+        },
+        "total_input_size_mb": 19646.41426372528,
+        "total_output_size_mb": 18239.456225395203
+      },
+      "accuracy_by_cycle": [
+        {
+          "cycle_idx": 0,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 0.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "identity",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 0.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 1,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 8.0
+          },
+          "coarse_error": 0.02111414074897766,
+          "num_tiles": 361,
+          "num_inliers": 361,
+          "inlier_ratio": 1.0,
+          "transform_type": "similarity",
+          "transform_params": [
+            -0.5468935156405452,
+            16.211001602618445,
+            3.5526656975235146e-15,
+            1.000013505711224
+          ],
+          "rmse": 0.9725890426081946,
+          "mean_residual": 0.6953055599176116,
+          "max_residual": 2.7034198840418044,
+          "min_residual": 0.10847677046391027,
+          "mean_shift_x": -0.3157894736842105,
+          "mean_shift_y": 16.44210564462762,
+          "std_shift_x": 0.9206766149755736,
+          "std_shift_y": 0.3646422752776584
+        },
+        {
+          "cycle_idx": 2,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 8.0
+          },
+          "coarse_error": 0.7225819230079651,
+          "num_tiles": 361,
+          "num_inliers": 361,
+          "inlier_ratio": 1.0,
+          "transform_type": "similarity",
+          "transform_params": [
+            -4.706190535714616,
+            9.809599330687668,
+            2.664199139804989e-15,
+            1.0001261614758314
+          ],
+          "rmse": 2.827223661613859,
+          "mean_residual": 2.304369242492409,
+          "max_residual": 7.194394136814928,
+          "min_residual": 0.06418165520749332,
+          "mean_shift_x": -2.5473684825395284,
+          "mean_shift_y": 11.96842138390792,
+          "std_shift_x": 2.7620299546799267,
+          "std_shift_y": 1.8413533762887544
+        }
+      ],
+      "scale_factor": 16.0,
+      "image_size": {
+        "width": 32768,
+        "height": 32768
+      },
+      "input_directory": "synthetic_test_images\\16x",
+      "output_directory": "output\\aligned_output_16x"
     }
   ],
   "scaling_analysis": {
-    "num_scales": 4,
+    "num_scales": 5,
     "scale_factors": [
       1.0,
       2.0,
       4.0,
-      8.0
+      8.0,
+      16.0
     ],
     "scaling_ratios": [
       {
@@ -539,31 +669,38 @@
       },
       {
         "scale_factor": 2.0,
-        "time_ratio": 4.3162957708503775,
+        "time_ratio": 4.536526311834287,
         "memory_ratio": 0.0,
         "input_size_ratio": 3.958595071656222,
-        "output_size_ratio": 3.929868254493954
+        "output_size_ratio": 3.9323219393791997
       },
       {
         "scale_factor": 4.0,
-        "time_ratio": 13.70751253516384,
+        "time_ratio": 15.693952151843018,
         "memory_ratio": 0.0,
         "input_size_ratio": 15.789136888869333,
-        "output_size_ratio": 15.634914212973191
+        "output_size_ratio": 15.646133804880998
       },
       {
         "scale_factor": 8.0,
-        "time_ratio": 241.05269640544847,
+        "time_ratio": 60.592632459761234,
         "memory_ratio": 0.0,
         "input_size_ratio": 63.048249943964684,
-        "output_size_ratio": 193.51088290680576
+        "output_size_ratio": 58.58405798156443
+      },
+      {
+        "scale_factor": 16.0,
+        "time_ratio": 1854.0649049698839,
+        "memory_ratio": 0.0,
+        "input_size_ratio": 249.98539863564207,
+        "output_size_ratio": 721.3620186173723
       }
     ],
     "aggregated_metrics": {
-      "total_time_across_scales": 535.8458828926086,
+      "total_time_across_scales": 3869.3699629306793,
       "max_memory_across_scales": 0.0,
       "min_memory_across_scales": 0.0,
-      "average_rmse_across_scales": 1.8037805501052573,
+      "average_rmse_across_scales": 1.8194147710835256,
       "max_rmse_across_scales": 2.8334912878020315,
       "min_rmse_across_scales": 2.176208866300266e-13
     }

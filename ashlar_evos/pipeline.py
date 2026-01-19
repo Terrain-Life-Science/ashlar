@@ -1409,3 +1409,172 @@ class EvosRegistrationPipeline:
             self._print_status(f"Performance report saved to: {report_path}")
         
         return output_files
+    
+    def run_alignment_only(self, output_path: Path,
+                          report_path: Optional[Path] = None) -> Dict:
+        """
+        Run alignment phases only - no image writing.
+        
+        This is much faster than run_full_pipeline() because it skips:
+        - Apply Transform phase (expensive tiled processing)
+        - Writing aligned OME-TIFF files
+        - Pyramid generation
+        
+        Instead, outputs a JSON file with transforms that can be applied
+        dynamically by viewers like napari.
+        
+        Parameters
+        ----------
+        output_path : Path
+            Path to save transforms.json file
+        report_path : Path, optional
+            Path to save JSON performance report
+            
+        Returns
+        -------
+        dict
+            The transforms data structure (same as what's written to JSON)
+        """
+        import json
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Record input file sizes
+        for cycle_file in self.cycle_files:
+            self.performance_monitor.record_input_file(str(cycle_file))
+        
+        self._print_header("Evos Registration Pipeline (Alignment-Only Mode)")
+        self._print_clean(f"Reference cycle: {self.reference_idx}")
+        self._print_clean(f"Total cycles: {len(self.cycle_files)}")
+        self._print_clean("Mode: Alignment-only (no image writing)")
+        print()
+        
+        # Phase 1: Coarse alignment
+        self.run_coarse_alignment()
+        print()
+        
+        # Phase 2: Fine registration (skip if coarse_only)
+        if not self.coarse_only:
+            for i in range(len(self.cycle_files)):
+                if i != self.reference_idx:
+                    self.run_fine_registration(i)
+                    print()
+        else:
+            self._print_clean("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
+            print()
+        
+        # Phase 3: Fit transforms
+        for i in range(len(self.cycle_files)):
+            self.fit_transform(i)
+            print()
+            
+            # Record accuracy metrics
+            coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
+            fine_shifts = self.fine_shifts.get(i, [])
+            transform_result = self.transforms.get(i, {})
+            self.performance_monitor.record_accuracy(
+                i, coarse_shift, coarse_error, fine_shifts, transform_result
+            )
+        
+        # Phase 4: SKIP - no image writing in alignment-only mode
+        self._print_phase_start(4, "Apply Transform")
+        self._print_clean("  SKIPPED (alignment-only mode)")
+        self._print_clean("  Transforms will be saved to JSON for dynamic application")
+        print()
+        
+        # Build transforms output
+        result = self._build_transforms_json()
+        
+        # Save transforms.json
+        with open(output_path, 'w') as f:
+            json.dump(result, f, indent=2)
+        
+        # Finalize performance monitoring
+        self.performance_monitor.finalize()
+        
+        # Generate and print summary report
+        self._print_header("Alignment Complete!")
+        print()
+        
+        # Print timing summary
+        self._print_clean(f"Total time: {self.performance_monitor.metrics.total_time_seconds:.2f} seconds")
+        self._print_clean(f"Transforms saved to: {output_path}")
+        print()
+        
+        # Print transform summary
+        self._print_clean("Detected transforms:")
+        for cycle in result['cycles']:
+            if cycle['index'] == self.reference_idx:
+                self._print_clean(f"  Cycle {cycle['index']}: Reference (identity)")
+            else:
+                shift = cycle.get('shift_yx', [0, 0])
+                error = cycle.get('error', 0)
+                self._print_clean(f"  Cycle {cycle['index']}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+        print()
+        
+        # Save JSON report if requested
+        if report_path:
+            self.performance_monitor.generate_report(
+                str(report_path),
+                scale_factor=self.scale_factor,
+                image_size=self.image_size
+            )
+            self._print_status(f"Performance report saved to: {report_path}")
+        
+        return result
+    
+    def _build_transforms_json(self) -> Dict:
+        """
+        Build the transforms JSON structure for alignment-only output.
+        
+        Returns
+        -------
+        dict
+            Transforms data structure compatible with napari and other viewers
+        """
+        result = {
+            "version": "1.0",
+            "format": "ashlar_evos_transforms",
+            "reference_cycle": self.reference_idx,
+            "pixel_size_um": self.pixel_size,
+            "image_size": self.image_size,
+            "transform_type": self.transform_type,
+            "coarse_only": self.coarse_only,
+            "cycles": []
+        }
+        
+        for i, cycle_file in enumerate(self.cycle_files):
+            transform_data = self.transforms.get(i, {})
+            coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0, 0]), 0.0))
+            
+            # Get transform matrix
+            transform_matrix = transform_data.get('transform', np.eye(3))
+            if isinstance(transform_matrix, np.ndarray):
+                transform_matrix = transform_matrix.tolist()
+            
+            cycle_info = {
+                "index": i,
+                "file": str(cycle_file.absolute()),
+                "filename": cycle_file.name,
+                "transform": transform_matrix,
+                "transform_type": transform_data.get('transform_type', 'identity'),
+                "shift_yx": coarse_shift.tolist() if isinstance(coarse_shift, np.ndarray) else list(coarse_shift),
+                "error": float(coarse_error)
+            }
+            
+            # Add additional params if available (rotation, scale for similarity)
+            if 'params' in transform_data:
+                params = transform_data['params']
+                if len(params) >= 4:
+                    cycle_info["translation_xy"] = [float(params[0]), float(params[1])]
+                    cycle_info["rotation_rad"] = float(params[2])
+                    cycle_info["scale"] = float(params[3])
+            
+            # Add RMSE if available
+            if 'rmse' in transform_data:
+                cycle_info["rmse"] = float(transform_data['rmse'])
+            
+            result["cycles"].append(cycle_info)
+        
+        return result
