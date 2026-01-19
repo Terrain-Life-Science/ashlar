@@ -335,69 +335,35 @@ def write_aligned_cycle(input_file: Path,
             image_shape = meta.shape_at_level(0)  # (height, width)
             num_channels = meta.num_channels
         
-        # Determine if we should process channels one at a time
-        # For large images (>50M pixels), process channels incrementally to reduce peak memory
+        # Determine image size for optimization decisions
         image_area = image_shape[0] * image_shape[1]
-        process_channels_incrementally = image_area > 50_000_000  # 50M pixels threshold
         
         # Enable fast mode for large images (8x and larger) to speed up writing
         fast_mode = image_area > 200_000_000  # 8x and larger
         
-        if process_channels_incrementally:
-            # For large images: process channels one at a time and write to temp files
-            # This reduces peak memory by only holding one channel in memory at a time
-            temp_files = []
-            transformed_channels = []
-            
-            try:
-                for channel_idx in range(num_channels):
-                    # Apply transform to this channel only
-                    if use_tiled_transform:
-                        # Use tiled transform for single channel
-                        # Note: apply_transform_tiled processes all channels, so we need
-                        # a single-channel version. For now, use apply_transform_to_channel
-                        # which is already channel-by-channel
-                        transformed = apply_transform_to_channel(
-                            reader, channel_idx, transform_matrix, level=0, 
-                            order=order, use_gpu=use_gpu
-                        )
-                    else:
-                        transformed = apply_transform_to_channel(
-                            reader, channel_idx, transform_matrix, level=0, 
-                            order=order, use_gpu=use_gpu
-                        )
-                    
-                    # Convert to uint16 and write to temp file to free memory
-                    transformed_uint16 = transformed.astype(np.uint16)
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.npy')
-                    temp_files.append(temp_file.name)
-                    np.save(temp_file.name, transformed_uint16)
-                    temp_file.close()
-                    
-                    # Free memory
-                    del transformed, transformed_uint16
-                
-                # Read channels back from temp files for writing
-                # We need all channels to write OME-TIFF, but they're now on disk
-                # For very large images, we can use memory-mapped reading
-                for temp_file_path in temp_files:
-                    channel_data = np.load(temp_file_path, mmap_mode='r')
-                    # Convert to regular array (will be loaded when needed)
-                    transformed_channels.append(np.array(channel_data))
-                
-            finally:
-                # Clean up temp files
-                for temp_file_path in temp_files:
-                    try:
-                        os.unlink(temp_file_path)
-                    except Exception:
-                        pass
+        # For large images (>50M pixels), always use apply_transform_tiled
+        # which processes all channels efficiently using memmap arrays
+        # This avoids the slow channel-by-channel temp file approach
+        large_image_threshold = 50_000_000  # 50M pixels
+        
+        if image_area > large_image_threshold:
+            # Large images: always use tiled processing for efficiency
+            # apply_transform_tiled handles all channels efficiently with memmap arrays
+            transformed_channels = apply_transform_tiled(
+                reader,
+                transform_matrix,
+                image_shape,
+                tile_size=tile_size,
+                tile_overlap=tile_overlap,
+                level=0,
+                order=order,
+                use_gpu=use_gpu
+            )
         else:
-            # For smaller images: process all channels at once (original behavior)
-            # Auto-disable tiled transform for small images (overhead not worth it)
-            large_image_threshold = 10_000_000  # 10M pixels
+            # For smaller images: auto-disable tiled transform if overhead not worth it
+            small_image_threshold = 10_000_000  # 10M pixels
             
-            if use_tiled_transform and image_area < large_image_threshold:
+            if use_tiled_transform and image_area < small_image_threshold:
                 # Small image - tiled processing overhead not worth it
                 use_tiled_transform = False
             
@@ -430,10 +396,59 @@ def write_aligned_cycle(input_file: Path,
     image_area = image_shape[0] * image_shape[1]
     fast_mode = image_area > 200_000_000  # 8x and larger
     
-    write_pyramidal_ometiff(
-        output_file,
-        transformed_channels,
-        pixel_size=pixel_size,
-        num_pyramid_levels=num_pyramid_levels,
-        fast_mode=fast_mode
-    )
+    # Check if channels are memmap arrays (need cleanup after writing)
+    is_memmap = any(isinstance(ch, np.memmap) for ch in transformed_channels)
+    memmap_files = []
+    if is_memmap:
+        # Collect memmap file paths for cleanup
+        for ch in transformed_channels:
+            if isinstance(ch, np.memmap):
+                memmap_files.append(ch.filename)
+    
+    try:
+        write_pyramidal_ometiff(
+            output_file,
+            transformed_channels,
+            pixel_size=pixel_size,
+            num_pyramid_levels=num_pyramid_levels,
+            fast_mode=fast_mode
+        )
+    finally:
+        # Clean up memmap files after writing is complete
+        if is_memmap:
+            import gc
+            import sys
+            import time
+            
+            # Flush and close memmap arrays
+            for ch in transformed_channels:
+                if isinstance(ch, np.memmap) and hasattr(ch, 'flush'):
+                    try:
+                        ch.flush()
+                    except Exception:
+                        pass
+            
+            # Delete references to memmap arrays
+            del transformed_channels
+            
+            # Force garbage collection to release file handles
+            gc.collect()
+            
+            # On Windows, files may still be locked briefly
+            if sys.platform == 'win32':
+                time.sleep(0.2)
+            
+            # Try to delete memmap files with retry logic
+            max_retries = 5
+            for memmap_file in memmap_files:
+                for retry in range(max_retries):
+                    try:
+                        if os.path.exists(memmap_file):
+                            os.unlink(memmap_file)
+                        break  # Success
+                    except (PermissionError, OSError):
+                        if retry < max_retries - 1:
+                            time.sleep(0.3)
+                            gc.collect()
+                        # On last retry, just ignore (OS will clean up)
+                        pass

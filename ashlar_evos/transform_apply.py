@@ -673,6 +673,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     # Initialize output channels and weight maps for blending
     # Use memory-mapped arrays for large images to avoid OOM
     temp_files = []
+    uint16_memmap_files = []  # Track uint16 memmap files separately (they're returned to caller)
     transformed_channels = []
     weight_maps = []
     
@@ -770,12 +771,14 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
             if use_memmap:
                 # Create new uint16 memmap file for this channel
                 temp_file_uint16 = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
-                temp_files.append(temp_file_uint16.name)
+                uint16_file_path = temp_file_uint16.name
+                uint16_memmap_files.append(uint16_file_path)  # Track for cleanup
+                temp_files.append(uint16_file_path)
                 temp_file_uint16.close()
                 
                 # Create uint16 memmap array
                 transformed_uint16 = np.memmap(
-                    temp_file_uint16.name,
+                    uint16_file_path,
                     dtype=np.uint16,
                     mode='w+',
                     shape=(h, w)
@@ -800,6 +803,16 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
         # Writer must handle them carefully to avoid loading all into memory
         if use_memmap:
             # Return memmap arrays directly - writer will handle them efficiently
+            # Clean up intermediate files (float32 channels and weight maps) but keep uint16 files
+            # The uint16 files are still needed by the returned memmap arrays
+            intermediate_files = [f for f in temp_files if f not in uint16_memmap_files]
+            for temp_file in intermediate_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass  # Ignore cleanup errors
+            
             result = transformed_channels  # Already uint16 memmaps
         else:
             result = transformed_channels
@@ -807,10 +820,14 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
         return result
     
     finally:
-        # Clean up temporary files
-        for temp_file in temp_files:
-            try:
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
-            except Exception:
-                pass  # Ignore cleanup errors
+        # Only clean up if we're not returning memmap arrays
+        # When returning memmap arrays, we keep the uint16 files (cleaned up above)
+        # The uint16 memmap files will be cleaned up by the OS when the process exits,
+        # or can be explicitly cleaned up by the writer after use
+        if not use_memmap:
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass  # Ignore cleanup errors
