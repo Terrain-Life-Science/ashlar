@@ -71,18 +71,148 @@ def print_progress_bar(current: int, total: int, prefix: str = "",
         print()  # New line when complete
 
 
+def _scale_count_by_area(base_count, full_shape, base_shape=(2048, 2048)):
+    """
+    Scale structure count based on image area to maintain constant density.
+    
+    Parameters
+    ----------
+    base_count : int
+        Number of structures at base resolution
+    full_shape : tuple
+        (height, width) of the target image
+    base_shape : tuple
+        (height, width) of the base resolution (default: 2048×2048)
+        
+    Returns
+    -------
+    int
+        Scaled count to maintain constant density
+    """
+    base_area = base_shape[0] * base_shape[1]
+    actual_area = full_shape[0] * full_shape[1]
+    return max(1, int(base_count * (actual_area / base_area)))
+
+
+def _render_circles_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, y_offset=0, x_offset=0):
+    """
+    Render multiple circles onto an image using local bounding boxes (vectorized).
+    
+    This is much faster than creating full-image masks for each circle.
+    Instead, it only computes the mask within each circle's bounding box.
+    
+    Parameters
+    ----------
+    img : np.ndarray
+        Image array to render onto (modified in place)
+    cy_arr, cx_arr : np.ndarray
+        Center coordinates (in absolute/full-image coordinates)
+    radius_arr : np.ndarray
+        Radius of each circle
+    intensity_arr : np.ndarray
+        Intensity of each circle
+    y_offset, x_offset : int
+        Offset of the image tile in the full image
+    """
+    h, w = img.shape
+    n = len(cy_arr)
+    
+    # Convert to local coordinates
+    cy_local = cy_arr - y_offset
+    cx_local = cx_arr - x_offset
+    
+    for i in range(n):
+        cy, cx, r, intensity = cy_local[i], cx_local[i], radius_arr[i], intensity_arr[i]
+        
+        # Compute bounding box in local coordinates
+        y_min = max(0, int(cy - r))
+        y_max = min(h, int(cy + r + 1))
+        x_min = max(0, int(cx - r))
+        x_max = min(w, int(cx + r + 1))
+        
+        # Skip if completely outside
+        if y_min >= y_max or x_min >= x_max:
+            continue
+        
+        # Create local coordinate grids for just this bounding box
+        yy, xx = np.ogrid[y_min:y_max, x_min:x_max]
+        
+        # Compute mask only within bounding box
+        dist_sq = (yy - cy)**2 + (xx - cx)**2
+        mask = dist_sq <= r**2
+        
+        # Apply to image using bounding box slice
+        region = img[y_min:y_max, x_min:x_max]
+        region[mask] = np.maximum(region[mask], intensity)
+
+
+def _render_rings_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, ring_width=2, y_offset=0, x_offset=0):
+    """
+    Render multiple rings (hollow circles) onto an image using local bounding boxes.
+    
+    Parameters
+    ----------
+    img : np.ndarray
+        Image array to render onto (modified in place)
+    cy_arr, cx_arr : np.ndarray
+        Center coordinates (in absolute/full-image coordinates)
+    radius_arr : np.ndarray
+        Radius of each ring
+    intensity_arr : np.ndarray
+        Intensity of each ring
+    ring_width : int
+        Width of the ring (default: 2)
+    y_offset, x_offset : int
+        Offset of the image tile in the full image
+    """
+    h, w = img.shape
+    n = len(cy_arr)
+    
+    # Convert to local coordinates
+    cy_local = cy_arr - y_offset
+    cx_local = cx_arr - x_offset
+    
+    for i in range(n):
+        cy, cx, r, intensity = cy_local[i], cx_local[i], radius_arr[i], intensity_arr[i]
+        
+        # Compute bounding box (ring extends from r-ring_width to r+ring_width)
+        outer_r = r + ring_width
+        y_min = max(0, int(cy - outer_r))
+        y_max = min(h, int(cy + outer_r + 1))
+        x_min = max(0, int(cx - outer_r))
+        x_max = min(w, int(cx + outer_r + 1))
+        
+        # Skip if completely outside
+        if y_min >= y_max or x_min >= x_max:
+            continue
+        
+        # Create local coordinate grids for just this bounding box
+        yy, xx = np.ogrid[y_min:y_max, x_min:x_max]
+        
+        # Compute distance and ring mask
+        dist = np.sqrt((yy - cy)**2 + (xx - cx)**2)
+        mask = (dist >= r - ring_width) & (dist <= r + ring_width)
+        
+        # Apply to image using bounding box slice
+        region = img[y_min:y_max, x_min:x_max]
+        region[mask] = np.maximum(region[mask], intensity)
+
+
 def _generate_cell_positions(full_shape, num_cells=50, cell_size_range=(20, 80), seed=42):
-    """Pre-generate cell positions for the full image."""
+    """Pre-generate cell positions for the full image with density scaling (vectorized)."""
     h, w = full_shape
+    # Scale cell count to maintain constant density across image sizes
+    scaled_num_cells = _scale_count_by_area(num_cells, full_shape)
     np.random.seed(seed)
-    cells = []
-    for _ in range(num_cells):
-        cy = np.random.randint(cell_size_range[1], h - cell_size_range[1])
-        cx = np.random.randint(cell_size_range[1], w - cell_size_range[1])
-        radius = np.random.randint(*cell_size_range)
-        intensity = np.random.uniform(0.3, 1.0)
-        cells.append((cy, cx, radius, intensity))
-    return cells
+    
+    # Vectorized generation (much faster than loop)
+    cy = np.random.randint(cell_size_range[1], h - cell_size_range[1], size=scaled_num_cells)
+    cx = np.random.randint(cell_size_range[1], w - cell_size_range[1], size=scaled_num_cells)
+    radius = np.random.randint(cell_size_range[0], cell_size_range[1], size=scaled_num_cells)
+    intensity = np.random.uniform(0.3, 1.0, size=scaled_num_cells)
+    
+    # Stack into list of tuples for compatibility
+    return list(zip(cy, cx, radius, intensity))
 
 
 def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80), 
@@ -105,41 +235,41 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80),
     """
     h, w = shape
     y0, x0 = tile_offset
-    # Cache ogrid to avoid repeated creation
-    y, x = np.ogrid[:h, :w]
-    # Convert to absolute coordinates
-    y_abs = y + y0
-    x_abs = x + x0
     
     # Accumulate all cells
     img = np.zeros(shape, dtype=np.float32)
-    radii = []
     
     if cell_positions is None:
-        # Generate positions on the fly (for backward compatibility)
+        # Generate positions on the fly with density scaling (vectorized)
         np.random.seed(42)
-        for _ in range(num_cells):
-            cy = np.random.randint(cell_size_range[1], h - cell_size_range[1]) + y0
-            cx = np.random.randint(cell_size_range[1], w - cell_size_range[1]) + x0
-            radius = np.random.randint(*cell_size_range)
-            intensity = np.random.uniform(0.3, 1.0)
-            # Directly add cell to image (no need to store in list)
-            radii.append(radius)
-            # Create circular cell mask in tile coordinates
-            mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-            img[mask] = np.maximum(img[mask], intensity)
+        scaled_num_cells = _scale_count_by_area(num_cells, shape)
+        
+        # Vectorized random generation
+        cy_arr = np.random.randint(cell_size_range[1], h - cell_size_range[1], size=scaled_num_cells) + y0
+        cx_arr = np.random.randint(cell_size_range[1], w - cell_size_range[1], size=scaled_num_cells) + x0
+        radius_arr = np.random.randint(cell_size_range[0], cell_size_range[1], size=scaled_num_cells)
+        intensity_arr = np.random.uniform(0.3, 1.0, size=scaled_num_cells)
+        
+        # Fast rendering using local bounding boxes
+        _render_circles_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, y0, x0)
+        radii = radius_arr.tolist()
     else:
-        # Use pre-generated positions, but only render cells that intersect this tile
-        # Check if cell center is within tile bounds (with margin for radius)
+        # Use pre-generated positions, filter to those that intersect this tile
         max_radius = cell_size_range[1]
-        for cy, cx, radius, intensity in cell_positions:
-            # Check if cell intersects this tile (with margin)
-            if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
-                cx - max_radius < x0 + w and cx + max_radius >= x0):
-                radii.append(radius)
-                # Create circular cell mask in tile coordinates
-                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-                img[mask] = np.maximum(img[mask], intensity)
+        positions = np.array(cell_positions)
+        cy_all, cx_all = positions[:, 0], positions[:, 1]
+        radius_all, intensity_all = positions[:, 2], positions[:, 3]
+        
+        # Vectorized intersection check
+        intersects = ((cy_all + max_radius >= y0) & (cy_all - max_radius < y0 + h) &
+                      (cx_all + max_radius >= x0) & (cx_all - max_radius < x0 + w))
+        
+        if np.any(intersects):
+            _render_circles_fast(img, cy_all[intersects], cx_all[intersects],
+                                radius_all[intersects], intensity_all[intersects], y0, x0)
+            radii = radius_all[intersects].tolist()
+        else:
+            radii = []
     
     # Apply single Gaussian filter to accumulated cells
     avg_radius = np.mean(radii) if radii else (cell_size_range[0] + cell_size_range[1]) / 2
@@ -155,17 +285,20 @@ def create_synthetic_cells(shape, num_cells=50, cell_size_range=(20, 80),
 
 
 def _generate_nuclei_positions(full_shape, num_nuclei=200, seed=123):
-    """Pre-generate nuclei positions for the full image."""
+    """Pre-generate nuclei positions for the full image with density scaling (vectorized)."""
     h, w = full_shape
+    # Scale nuclei count to maintain constant density across image sizes
+    scaled_num_nuclei = _scale_count_by_area(num_nuclei, full_shape)
     np.random.seed(seed)
-    nuclei = []
-    for _ in range(num_nuclei):
-        cy = np.random.randint(10, h - 10)
-        cx = np.random.randint(10, w - 10)
-        radius = np.random.randint(3, 12)
-        intensity = np.random.uniform(0.4, 1.0)
-        nuclei.append((cy, cx, radius, intensity))
-    return nuclei
+    
+    # Vectorized generation (much faster than loop)
+    cy = np.random.randint(10, h - 10, size=scaled_num_nuclei)
+    cx = np.random.randint(10, w - 10, size=scaled_num_nuclei)
+    radius = np.random.randint(3, 12, size=scaled_num_nuclei)
+    intensity = np.random.uniform(0.4, 1.0, size=scaled_num_nuclei)
+    
+    # Stack into list of tuples for compatibility
+    return list(zip(cy, cx, radius, intensity))
 
 
 def create_dapi_channel(shape, tile_offset=(0, 0), nuclei_positions=None):
@@ -185,32 +318,34 @@ def create_dapi_channel(shape, tile_offset=(0, 0), nuclei_positions=None):
     y0, x0 = tile_offset
     img = np.zeros(shape, dtype=np.float32)
     
-    # Cache ogrid to avoid repeated creation in loop
-    y, x = np.ogrid[:h, :w]
-    # Convert to absolute coordinates
-    y_abs = y + y0
-    x_abs = x + x0
-    
     if nuclei_positions is None:
-        # Generate positions on the fly (for backward compatibility)
+        # Generate positions on the fly with density scaling (vectorized)
         np.random.seed(123)
-        num_nuclei = 200
-        for _ in range(num_nuclei):
-            cy = np.random.randint(10, h - 10) + y0
-            cx = np.random.randint(10, w - 10) + x0
-            radius = np.random.randint(3, 12)
-            intensity = np.random.uniform(0.4, 1.0)
-            mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-            img[mask] = np.maximum(img[mask], intensity)
+        num_nuclei = _scale_count_by_area(200, shape)
+        
+        # Vectorized random generation (much faster than loop)
+        cy_arr = np.random.randint(10, h - 10, size=num_nuclei) + y0
+        cx_arr = np.random.randint(10, w - 10, size=num_nuclei) + x0
+        radius_arr = np.random.randint(3, 12, size=num_nuclei)
+        intensity_arr = np.random.uniform(0.4, 1.0, size=num_nuclei)
+        
+        # Fast rendering using local bounding boxes
+        _render_circles_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, y0, x0)
     else:
-        # Use pre-generated positions, only render nuclei that intersect this tile
+        # Use pre-generated positions, filter to those that intersect this tile
         max_radius = 12
-        for cy, cx, radius, intensity in nuclei_positions:
-            # Check if nucleus intersects this tile
-            if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
-                cx - max_radius < x0 + w and cx + max_radius >= x0):
-                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-                img[mask] = np.maximum(img[mask], intensity)
+        # Convert to arrays for fast filtering
+        positions = np.array(nuclei_positions)
+        cy_all, cx_all = positions[:, 0], positions[:, 1]
+        radius_all, intensity_all = positions[:, 2], positions[:, 3]
+        
+        # Vectorized intersection check
+        intersects = ((cy_all + max_radius >= y0) & (cy_all - max_radius < y0 + h) &
+                      (cx_all + max_radius >= x0) & (cx_all - max_radius < x0 + w))
+        
+        if np.any(intersects):
+            _render_circles_fast(img, cy_all[intersects], cx_all[intersects],
+                                radius_all[intersects], intensity_all[intersects], y0, x0)
     
     # Add some background noise
     # For very large images, reduce noise to save memory and time
@@ -235,31 +370,37 @@ def create_dapi_channel(shape, tile_offset=(0, 0), nuclei_positions=None):
 
 
 def _generate_membrane_positions(full_shape, num_rings=40, seed=456):
-    """Pre-generate membrane ring positions for the full image."""
+    """Pre-generate membrane ring positions for the full image with density scaling (vectorized)."""
     h, w = full_shape
+    # Scale ring count to maintain constant density across image sizes
+    scaled_num_rings = _scale_count_by_area(num_rings, full_shape)
     np.random.seed(seed)
-    rings = []
-    for _ in range(num_rings):
-        cy = np.random.randint(50, h - 50)
-        cx = np.random.randint(50, w - 50)
-        radius = np.random.randint(40, 120)
-        intensity = np.random.uniform(0.5, 1.0)
-        rings.append((cy, cx, radius, intensity))
-    return rings
+    
+    # Vectorized generation (much faster than loop)
+    cy = np.random.randint(50, h - 50, size=scaled_num_rings)
+    cx = np.random.randint(50, w - 50, size=scaled_num_rings)
+    radius = np.random.randint(40, 120, size=scaled_num_rings)
+    intensity = np.random.uniform(0.5, 1.0, size=scaled_num_rings)
+    
+    # Stack into list of tuples for compatibility
+    return list(zip(cy, cx, radius, intensity))
 
 
 def _generate_punctate_positions(full_shape, num_puncta=100, seed=789):
-    """Pre-generate punctate structure positions for the full image."""
+    """Pre-generate punctate structure positions for the full image with density scaling (vectorized)."""
     h, w = full_shape
+    # Scale puncta count to maintain constant density across image sizes
+    scaled_num_puncta = _scale_count_by_area(num_puncta, full_shape)
     np.random.seed(seed)
-    puncta = []
-    for _ in range(num_puncta):
-        cy = np.random.randint(5, h - 5)
-        cx = np.random.randint(5, w - 5)
-        radius = np.random.randint(2, 8)
-        intensity = np.random.uniform(0.6, 1.0)
-        puncta.append((cy, cx, radius, intensity))
-    return puncta
+    
+    # Vectorized generation (much faster than loop)
+    cy = np.random.randint(5, h - 5, size=scaled_num_puncta)
+    cx = np.random.randint(5, w - 5, size=scaled_num_puncta)
+    radius = np.random.randint(2, 8, size=scaled_num_puncta)
+    intensity = np.random.uniform(0.6, 1.0, size=scaled_num_puncta)
+    
+    # Stack into list of tuples for compatibility
+    return list(zip(cy, cx, radius, intensity))
 
 
 def create_fluorescence_channel(shape, pattern_type='cytoplasmic', 
@@ -297,33 +438,36 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic',
     elif pattern_type == 'membrane':
         # Thin membrane-like structures
         img = np.zeros(shape, dtype=np.float32)
-        # Cache ogrid to avoid repeated creation in loop
-        y, x = np.ogrid[:h, :w]
-        # Convert to absolute coordinates
-        y_abs = y + y0
-        x_abs = x + x0
         
         if membrane_positions is None:
-            # Generate positions on the fly (for backward compatibility)
+            # Generate positions on the fly with density scaling (vectorized)
             np.random.seed(456)
-            for _ in range(40):
-                cy = np.random.randint(50, h - 50) + y0
-                cx = np.random.randint(50, w - 50) + x0
-                radius = np.random.randint(40, 120)
-                intensity = np.random.uniform(0.5, 1.0)
-                dist = np.sqrt((x_abs - cx)**2 + (y_abs - cy)**2)
-                ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
-                img[ring_mask] = np.maximum(img[ring_mask], intensity)
+            num_rings = _scale_count_by_area(40, shape)
+            
+            # Vectorized random generation
+            cy_arr = np.random.randint(50, h - 50, size=num_rings) + y0
+            cx_arr = np.random.randint(50, w - 50, size=num_rings) + x0
+            radius_arr = np.random.randint(40, 120, size=num_rings)
+            intensity_arr = np.random.uniform(0.5, 1.0, size=num_rings)
+            
+            # Fast rendering using local bounding boxes
+            _render_rings_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, 
+                              ring_width=2, y_offset=y0, x_offset=x0)
         else:
-            # Use pre-generated positions
+            # Use pre-generated positions, filter to those that intersect this tile
             max_radius = 120
-            for cy, cx, radius, intensity in membrane_positions:
-                # Check if ring intersects this tile
-                if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
-                    cx - max_radius < x0 + w and cx + max_radius >= x0):
-                    dist = np.sqrt((x_abs - cx)**2 + (y_abs - cy)**2)
-                    ring_mask = (dist >= radius - 2) & (dist <= radius + 2)
-                    img[ring_mask] = np.maximum(img[ring_mask], intensity)
+            positions = np.array(membrane_positions)
+            cy_all, cx_all = positions[:, 0], positions[:, 1]
+            radius_all, intensity_all = positions[:, 2], positions[:, 3]
+            
+            # Vectorized intersection check
+            intersects = ((cy_all + max_radius >= y0) & (cy_all - max_radius < y0 + h) &
+                          (cx_all + max_radius >= x0) & (cx_all - max_radius < x0 + w))
+            
+            if np.any(intersects):
+                _render_rings_fast(img, cy_all[intersects], cx_all[intersects],
+                                  radius_all[intersects], intensity_all[intersects],
+                                  ring_width=2, y_offset=y0, x_offset=x0)
         
         sigma = 2.0
         # Optimize for large images: reduce sigma and limit kernel size
@@ -335,31 +479,34 @@ def create_fluorescence_channel(shape, pattern_type='cytoplasmic',
     else:
         # Random punctate structures
         img = np.zeros(shape, dtype=np.float32)
-        # Cache ogrid to avoid repeated creation in loop
-        y, x = np.ogrid[:h, :w]
-        # Convert to absolute coordinates
-        y_abs = y + y0
-        x_abs = x + x0
         
         if punctate_positions is None:
-            # Generate positions on the fly (for backward compatibility)
+            # Generate positions on the fly with density scaling (vectorized)
             np.random.seed(789)
-            for _ in range(100):
-                cy = np.random.randint(5, h - 5) + y0
-                cx = np.random.randint(5, w - 5) + x0
-                radius = np.random.randint(2, 8)
-                intensity = np.random.uniform(0.6, 1.0)
-                mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-                img[mask] = np.maximum(img[mask], intensity)
+            num_puncta = _scale_count_by_area(100, shape)
+            
+            # Vectorized random generation
+            cy_arr = np.random.randint(5, h - 5, size=num_puncta) + y0
+            cx_arr = np.random.randint(5, w - 5, size=num_puncta) + x0
+            radius_arr = np.random.randint(2, 8, size=num_puncta)
+            intensity_arr = np.random.uniform(0.6, 1.0, size=num_puncta)
+            
+            # Fast rendering using local bounding boxes
+            _render_circles_fast(img, cy_arr, cx_arr, radius_arr, intensity_arr, y0, x0)
         else:
-            # Use pre-generated positions
+            # Use pre-generated positions, filter to those that intersect this tile
             max_radius = 8
-            for cy, cx, radius, intensity in punctate_positions:
-                # Check if puncta intersects this tile
-                if (cy - max_radius < y0 + h and cy + max_radius >= y0 and
-                    cx - max_radius < x0 + w and cx + max_radius >= x0):
-                    mask = ((x_abs - cx)**2 + (y_abs - cy)**2 <= radius**2)
-                    img[mask] = np.maximum(img[mask], intensity)
+            positions = np.array(punctate_positions)
+            cy_all, cx_all = positions[:, 0], positions[:, 1]
+            radius_all, intensity_all = positions[:, 2], positions[:, 3]
+            
+            # Vectorized intersection check
+            intersects = ((cy_all + max_radius >= y0) & (cy_all - max_radius < y0 + h) &
+                          (cx_all + max_radius >= x0) & (cx_all - max_radius < x0 + w))
+            
+            if np.any(intersects):
+                _render_circles_fast(img, cy_all[intersects], cx_all[intersects],
+                                    radius_all[intersects], intensity_all[intersects], y0, x0)
         
         sigma = 1.5
         # Optimize for large images: reduce sigma and limit kernel size
@@ -714,15 +861,17 @@ def generate_synthetic_cycle(
     
     # Pre-generate structure positions for tiled processing (only needed for large images)
     if use_tiled:
-        print("  Pre-generating structure positions...")
+        print("  Pre-generating structure positions (density-scaled)...")
         start_time = time.time()
         try:
-            # Pre-generate all structure positions once
+            # Pre-generate all structure positions once (counts are auto-scaled by area)
             nuclei_positions = _generate_nuclei_positions((h, w))
             cell_positions = _generate_cell_positions((h, w), num_cells=30, cell_size_range=(30, 100))
             membrane_positions = _generate_membrane_positions((h, w))
             punctate_positions = _generate_punctate_positions((h, w))
             elapsed = time.time() - start_time
+            print(f"    Nuclei: {len(nuclei_positions)}, Cells: {len(cell_positions)}, "
+                  f"Membranes: {len(membrane_positions)}, Puncta: {len(punctate_positions)}")
             print(f"    Positions generated in {elapsed:.2f} seconds")
         except Exception as e:
             print(f"  WARNING: Failed to pre-generate positions: {e}")
