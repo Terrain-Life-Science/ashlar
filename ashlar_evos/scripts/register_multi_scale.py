@@ -60,7 +60,8 @@ def run_registration_for_scale(
     transform_type: str = 'similarity',
     num_workers: Optional[int] = None,
     verbose: bool = True,
-    coarse_only: bool = False
+    coarse_only: bool = False,
+    alignment_only: bool = False
 ) -> Dict:
     """
     Run registration pipeline for a single scale.
@@ -91,6 +92,8 @@ def run_registration_for_scale(
         Print progress messages
     coarse_only : bool
         Skip fine registration
+    alignment_only : bool
+        Output only alignment transforms (JSON), skip writing aligned images
         
     Returns
     -------
@@ -154,10 +157,20 @@ def run_registration_for_scale(
     )
     
     # Run pipeline
-    output_files = pipeline.run_full_pipeline(
-        output_dir,
-        report_path=None  # We'll collect the report manually
-    )
+    if alignment_only:
+        # Alignment-only mode: output transforms.json, skip image writing
+        transforms_path = output_dir / 'transforms.json'
+        result = pipeline.run_alignment_only(
+            output_path=transforms_path,
+            report_path=None  # We'll collect the report manually
+        )
+        output_files = {}  # No image files in alignment-only mode
+    else:
+        # Full pipeline: write aligned images
+        output_files = pipeline.run_full_pipeline(
+            output_dir,
+            report_path=None  # We'll collect the report manually
+        )
     
     # Get report from performance monitor (includes scale metadata)
     report = pipeline.performance_monitor.generate_report(
@@ -168,6 +181,7 @@ def run_registration_for_scale(
     # Add directory metadata for traceability
     report['input_directory'] = str(input_dir)
     report['output_directory'] = str(output_dir)
+    report['alignment_only'] = alignment_only
     
     # Clean up pipeline to free memory before processing next scale
     # This is important for multi-scale runs to prevent memory accumulation
@@ -194,6 +208,7 @@ def generate_multi_scale_report(
     num_workers: Optional[int] = None,
     verbose: bool = True,
     coarse_only: bool = False,
+    alignment_only: bool = False,
     max_scale: float = 16.0
 ) -> Dict:
     """
@@ -221,6 +236,8 @@ def generate_multi_scale_report(
         Print progress messages
     coarse_only : bool
         Skip fine registration
+    alignment_only : bool
+        Output only alignment transforms (JSON), skip writing aligned images
     max_scale : float
         Maximum scale to process (default: 16.0). Scales larger than this will be skipped.
         
@@ -246,6 +263,8 @@ def generate_multi_scale_report(
         print()
         print("=" * 70)
         print("Multi-Scale Registration Pipeline")
+        if alignment_only:
+            print("Mode: Alignment-only (transforms.json output)")
         print("=" * 70)
         print(f"Base input directory: {base_input_dir}")
         print(f"Base output directory: {base_output_dir}")
@@ -283,7 +302,8 @@ def generate_multi_scale_report(
                 transform_type=transform_type,
                 num_workers=num_workers,
                 verbose=verbose,
-                coarse_only=coarse_only
+                coarse_only=coarse_only,
+                alignment_only=alignment_only
             )
             runs.append(report)
         except Exception as e:
@@ -327,6 +347,12 @@ Examples:
   
   # Skip large scales (8x, 16x) if memory is limited
   # Note: 8x and 16x scales require significant memory and processing time
+  
+  # FAST: Alignment-only mode (outputs transforms.json, no image writing)
+  python -m ashlar_evos.scripts.register_multi_scale --base-input-dir . --base-output-dir . --alignment-only
+  
+  # Combine coarse-only with alignment-only for fastest possible alignment
+  python -m ashlar_evos.scripts.register_multi_scale --base-input-dir . --base-output-dir . --coarse-only --alignment-only
         """
     )
     
@@ -413,6 +439,14 @@ Examples:
         help='Skip fine registration and use only coarse alignment'
     )
     
+    parser.add_argument(
+        '--alignment-only',
+        action='store_true',
+        help='Output only alignment transforms (JSON), skip writing aligned images. '
+             'This is much faster and uses minimal memory. Use with a viewer like napari '
+             'to apply transforms dynamically.'
+    )
+    
     args = parser.parse_args(argv)
     
     # Set up logging - organize logs into logs/ subdirectory
@@ -451,6 +485,7 @@ Examples:
             num_workers=args.num_workers,
             verbose=not args.quiet,
             coarse_only=args.coarse_only,
+            alignment_only=args.alignment_only,
             max_scale=args.max_scale
         )
         
