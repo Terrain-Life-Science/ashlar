@@ -6,8 +6,10 @@ print("=" * 60)
 print("PIPELINE VERIFICATION SUMMARY")
 print("=" * 60)
 
-# Check report file
-report_path = Path("report.json")
+# Check report file (look in reports/ directory first, then root)
+report_path = Path("reports/report.json")
+if not report_path.exists():
+    report_path = Path("report.json")  # Fallback to root for backward compatibility
 if report_path.exists():
     with open(report_path) as f:
         report = json.load(f)

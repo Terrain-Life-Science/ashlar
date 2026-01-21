@@ -112,3 +112,64 @@ pip install ashlar
 ### Docker image
 
 The docker image of ashlar is on DockerHub at [labsyspharm/ashlar](https://hub.docker.com/r/labsyspharm/ashlar) and should be suitable for many use cases.
+
+---
+
+## Evos S1000 Registration Extension
+
+This repository includes an extension for registering already-stitched pyramidal OME-TIFF images from Thermo Fisher Scientific Invitrogen EVOS S1000 Spatial Imaging System.
+
+### Quick Start
+
+```bash
+# Register Evos S1000 cycles
+register_evos cycle_*.ome.tif --output-dir aligned/ --cloud
+
+# With performance report
+register_evos cycle_*.ome.tif --output-dir aligned/ --cloud --report report.json
+
+# Validate results
+validate_registration cycle_00.ome.tif aligned/cycle_*.ome.tif --ground-truth --visualize
+```
+
+### Key Features
+
+- **Multi-scale pyramid-based registration**: Fast coarse alignment + sub-pixel fine registration
+- **Tiled processing**: Memory-efficient handling of large images (up to 35K×35K pixels)
+- **GPU acceleration**: Optional PyTorch-based GPU acceleration for faster processing
+- **Cloud-optimized**: Automatic parameter optimization for AWS deployment
+- **Checkpoint/resume**: Resume from failures without losing progress
+- **Comprehensive validation**: Accuracy metrics and visual validation tools
+
+### Documentation
+
+- **[Real-World Usage Guide](docs/real_world_usage.md)**: Practical usage instructions
+- **[Troubleshooting Guide](docs/troubleshooting.md)**: Common issues and solutions
+- **[Validation Guide](docs/validation_guide.md)**: How to validate registration results
+
+### Example Workflows
+
+**Standard Registration**:
+```bash
+register_evos cycle_00.ome.tif cycle_01.ome.tif cycle_02.ome.tif \
+    --output-dir aligned/ \
+    --cloud \
+    --report report.json
+```
+
+**Batch Processing**:
+```bash
+python -m ashlar_evos.scripts.register_batch \
+    --input-dir samples/ \
+    --output-dir output/ \
+    --num-workers 8
+```
+
+**Performance Benchmarking**:
+```bash
+python -m ashlar_evos.scripts.benchmark_large_scale \
+    synthetic_test_images/4x/cycle_*.ome.tif \
+    --output-dir benchmark_4x/
+```
+
+For more information, see the [documentation](docs/) directory.

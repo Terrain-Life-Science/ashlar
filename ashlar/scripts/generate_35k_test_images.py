@@ -36,8 +36,8 @@ Examples:
     parser.add_argument(
         '--output-dir', '-o',
         type=str,
-        default='synthetic_test_images_35k',
-        help='Output directory for generated images (default: synthetic_test_images_35k)'
+        default='synthetic_test_images/35k',
+        help='Output directory for generated images (default: synthetic_test_images/35k)'
     )
     
     parser.add_argument(
@@ -78,10 +78,12 @@ Examples:
     if len(args.shifts) != 6:
         parser.error("--shifts requires exactly 6 values (dx0 dy0 dx1 dy1 dx2 dy2)")
     
+    # Note: shift format is (dy, dx) to match generate_synthetic_cycle() expectations
+    # args.shifts format is [dx0, dy0, dx1, dy1, dx2, dy2], so we swap to create (dy, dx)
     shifts = [
-        (args.shifts[0], args.shifts[1]),  # Cycle 0: (dx, dy)
-        (args.shifts[2], args.shifts[3]),  # Cycle 1: (dx, dy)
-        (args.shifts[4], args.shifts[5]),  # Cycle 2: (dx, dy)
+        (args.shifts[1], args.shifts[0]),  # Cycle 0: (dy, dx) from (dx0, dy0)
+        (args.shifts[3], args.shifts[2]),  # Cycle 1: (dy, dx) from (dx1, dy1)
+        (args.shifts[5], args.shifts[4]),  # Cycle 2: (dy, dx) from (dx2, dy2)
     ]
     
     # 35K x 35K image size
@@ -145,7 +147,7 @@ Examples:
     print()
     print("Expected shifts (for validation):")
     for i, shift in enumerate(shifts):
-        print(f"  Cycle {i}: dx={shift[0]:.2f}, dy={shift[1]:.2f} pixels")
+        print(f"  Cycle {i}: dy={shift[0]:.2f}, dx={shift[1]:.2f} pixels")
     print()
     print("You can now test registration algorithms on these images.")
     print("The known shifts can be used to validate registration accuracy.")

@@ -238,7 +238,7 @@ python -m ashlar_evos.scripts.register_multi_scale
 register_evos synthetic_test_images/cycle_*.ome.tif --output-dir aligned_output/ --cloud
 
 # Generate large test images
-python -m ashlar.scripts.generate_35k_test_images --output-dir synthetic_test_images_35k --yes
+python -m ashlar.scripts.generate_35k_test_images --output-dir synthetic_test_images/35k --yes
 
 # Visualize results
 cd visualization && npm run dev

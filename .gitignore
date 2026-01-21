@@ -9,3 +9,32 @@ ashlar/jars
 output/*
 
 .obsidian/*
+# Test output files (keep package.json, etc.)
+test_*.json
+report*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!vite.config.json
+
+# AWS assessment report data files (keep structure, ignore data)
+aws_assessment_reports/*.json
+!aws_assessment_reports/.gitkeep
+# Test output directories
+test_opt*/
+test_optimized*/
+test_final_optimized/
+
+# Multi-scale test images (can be regenerated, inside synthetic_test_images/)
+synthetic_test_images/*/
+!synthetic_test_images/1x/
+!synthetic_test_images/2x/
+!synthetic_test_images/4x/
+!synthetic_test_images/8x/
+!synthetic_test_images/16x/
+!synthetic_test_images/35k/
+!synthetic_test_images/cycle_comparison.png
+
+# Reports directory (keep structure, ignore generated reports)
+reports/*.json
+!reports/.gitkeep

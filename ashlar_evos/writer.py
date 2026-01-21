@@ -60,11 +60,20 @@ def write_pyramidal_ometiff(output_path: Path,
         for channel in current_level_channels:
             temp = channel.astype(np.float32)
             # Downsample by 2 in rows (2x reduction in height)
-            temp = (temp[::2, :] + temp[1::2, :]) / 2
+            # Handle odd dimensions by trimming to match sizes
+            even_rows = temp[::2, :]
+            odd_rows = temp[1::2, :]
+            # Trim to match smaller size if dimensions are odd
+            min_rows = min(even_rows.shape[0], odd_rows.shape[0])
+            temp = (even_rows[:min_rows, :] + odd_rows[:min_rows, :]) / 2
+            
             # Downsample by 2 in columns (2x reduction in width)
-            # Total: each dimension is 2x smaller, so area is 4x smaller
-            # But for pyramid purposes, level N is 2^N times smaller than base
-            temp = (temp[:, ::2] + temp[:, 1::2]) / 2
+            # Handle odd dimensions by trimming to match sizes
+            even_cols = temp[:, ::2]
+            odd_cols = temp[:, 1::2]
+            # Trim to match smaller size if dimensions are odd
+            min_cols = min(even_cols.shape[1], odd_cols.shape[1])
+            temp = (even_cols[:, :min_cols] + odd_cols[:, :min_cols]) / 2
             level_channels.append(temp.astype(np.uint16))
         
         # Stack channels: (C, Y, X)

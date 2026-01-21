@@ -80,9 +80,11 @@ class OMEMetadata:
                     if isinstance(x_res, tuple) and len(x_res) == 2:
                         # Resolution is in pixels per unit
                         # Convert to micrometers (assuming unit is cm)
-                        resolution_cm = x_res[0] / x_res[1]
-                        pixel_size_um = 10000 / resolution_cm
-                        return pixel_size_um
+                        # Guard against division by zero
+                        if x_res[1] != 0 and x_res[0] != 0:
+                            resolution_cm = x_res[0] / x_res[1]
+                            pixel_size_um = 10000 / resolution_cm
+                            return pixel_size_um
         
         # Default for Evos S1000
         return 0.325

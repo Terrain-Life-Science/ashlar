@@ -72,8 +72,12 @@ def _apply_transform_torch(image: np.ndarray, source_y: np.ndarray,
     grid_x = 2.0 * source_x / (w - 1) - 1.0
     grid_y = 2.0 * source_y / (h - 1) - 1.0
     
+    # Convert to torch tensors before stacking
+    grid_x_tensor = torch.from_numpy(grid_x).float()
+    grid_y_tensor = torch.from_numpy(grid_y).float()
+    
     # Create grid tensor: shape (1, H, W, 2) where last dim is (x, y)
-    grid = torch.stack([grid_x, grid_y], dim=-1)
+    grid = torch.stack([grid_x_tensor, grid_y_tensor], dim=-1)
     grid = grid.unsqueeze(0).to(device)
     
     # Map interpolation order
@@ -454,9 +458,10 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     grid = TileGrid(image_shape, tile_size=tile_size, overlap=tile_overlap)
     num_channels = reader.get_num_channels()
     
-    # Initialize output channels
+    # Initialize output channels and weight maps for blending
     h, w = image_shape
-    transformed_channels = [np.zeros((h, w), dtype=np.uint16) for _ in range(num_channels)]
+    transformed_channels = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
+    weight_maps = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
     
     # Process each channel
     for channel_idx in range(num_channels):
@@ -468,9 +473,50 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
                 level=level, order=order, use_gpu=use_gpu
             )
             
-            # Place transformed tile in output
+            # Create weight map for this tile (feather edges for smooth blending)
             y0, x0 = tile_info.y, tile_info.x
             th, tw = transformed_tile.shape
-            transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] = transformed_tile
+            
+            # Create weight map: 1.0 in center, feathering to 0.5 at edges
+            # This ensures smooth blending in overlap regions
+            tile_weight = np.ones((th, tw), dtype=np.float64)
+            feather_size = min(tile_overlap // 2, min(th, tw) // 4)
+            
+            if feather_size > 0:
+                # Feather top edge
+                for i in range(feather_size):
+                    weight = 0.5 + 0.5 * (i + 1) / feather_size
+                    tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+                
+                # Feather bottom edge
+                for i in range(feather_size):
+                    weight = 0.5 + 0.5 * (i + 1) / feather_size
+                    tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                
+                # Feather left edge
+                for j in range(feather_size):
+                    weight = 0.5 + 0.5 * (j + 1) / feather_size
+                    tile_weight[:, j] = np.minimum(tile_weight[:, j], weight)
+                
+                # Feather right edge
+                for j in range(feather_size):
+                    weight = 0.5 + 0.5 * (j + 1) / feather_size
+                    tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
+            
+            # Accumulate weighted tile values
+            transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
+            weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
+        
+        # Normalize by weight map to get final blended result
+        # Avoid division by zero
+        weight_map = weight_maps[channel_idx]
+        mask = weight_map > 0
+        transformed_channels[channel_idx][mask] /= weight_map[mask]
+        transformed_channels[channel_idx][~mask] = 0
+        
+        # Convert back to uint16
+        transformed_channels[channel_idx] = np.clip(
+            transformed_channels[channel_idx], 0, 65535
+        ).astype(np.uint16)
     
     return transformed_channels

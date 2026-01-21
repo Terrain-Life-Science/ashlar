@@ -249,10 +249,16 @@ class PerformanceMonitor:
             inliers = transform_result.get('inliers', np.array([]))
             num_inliers = int(np.sum(inliers)) if len(inliers) > 0 else len(fine_shifts)
             
+            # Convert coarse_shift to tuple for consistency (same as in the other code path)
+            if isinstance(coarse_shift, np.ndarray):
+                coarse_shift_tuple = (float(coarse_shift[0]), float(coarse_shift[1]))
+            else:
+                coarse_shift_tuple = (float(coarse_shift[0]), float(coarse_shift[1]))
+            
             accuracy = RegistrationAccuracy(
                 cycle_idx=cycle_idx,
-                coarse_shift=coarse_shift,
-                coarse_error=coarse_error,
+                coarse_shift=coarse_shift_tuple,
+                coarse_error=float(coarse_error),
                 num_tiles=len(fine_shifts),
                 num_inliers=num_inliers,
                 transform_type=transform_type,

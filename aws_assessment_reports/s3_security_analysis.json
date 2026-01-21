@@ -1,0 +1,319 @@
+{
+  "timestamp": "2026-01-18T09:05:53.456885",
+  "buckets_analyzed": [
+    {
+      "bucket": "data.kpc.terrain.lifescience",
+      "public_access": false
+    },
+    {
+      "bucket": "dev.aethera.web.terrain.lifescience",
+      "public_access": false
+    },
+    {
+      "bucket": "dev.atlas.web.terrain.lifescience",
+      "public_access": false
+    },
+    {
+      "bucket": "dev.intel.passage.terrain.lifescience",
+      "public_access": false
+    },
+    {
+      "bucket": "dev.intel.terrain.lifescience",
+      "public_access": false
+    },
+    {
+      "bucket": "research.terrain.lifescience",
+      "public_access": false
+    }
+  ],
+  "public_buckets": [
+    {
+      "bucket": "dev.doc.intel.terrain.lifescience",
+      "timestamp": "2026-01-18T09:05:54.605781",
+      "policy_analysis": {
+        "bucket": "dev.doc.intel.terrain.lifescience",
+        "has_policy": true,
+        "public_access": true,
+        "public_principals": [
+          "* (Everyone)"
+        ],
+        "allowed_actions": [
+          "s3:GetObject"
+        ],
+        "policy_summary": "Bucket policy allows public access. Actions: s3:GetObject"
+      },
+      "content_analysis": {
+        "bucket": "dev.doc.intel.terrain.lifescience",
+        "total_files": 100,
+        "total_size_bytes": 23897459,
+        "file_types": {
+          "pdf": 3,
+          "jpg": 88
+        },
+        "sample_files": [
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589.pdf",
+            "size": 10187098,
+            "last_modified": "2025-03-10T04:44:18+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_03c6cdb758ce85d02446fdc960b0d325",
+            "size": 8901,
+            "last_modified": "2025-03-10T04:44:14+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_15170c9495c8971d0df7e2a26f06b8e7",
+            "size": 18032,
+            "last_modified": "2025-03-10T04:44:14+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_6245153f8747b49c215c0a2dae6b6e91",
+            "size": 272800,
+            "last_modified": "2025-03-10T04:44:14+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_629d7fa36feaa8cf7452d051a9d0020b",
+            "size": 2144,
+            "last_modified": "2025-03-10T04:44:14+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_6d708bbc74c547d4c4e7bd34e8af04f3",
+            "size": 189385,
+            "last_modified": "2025-03-10T04:44:17+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_76656e5dd5cf26d558caf2a4eea7be4c",
+            "size": 93123,
+            "last_modified": "2025-03-10T04:44:15+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_7868f793db72046aa82c056f343b177b",
+            "size": 211966,
+            "last_modified": "2025-03-10T04:44:16+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_93f0a115c59ec192d5d8c6afa07bfe41",
+            "size": 158288,
+            "last_modified": "2025-03-10T04:44:18+00:00"
+          },
+          {
+            "key": "20250309214250213_d00ab212276dcff707143589/20250309214250213_d00ab212276dcff707143589_image_fa893457ea9a610640bd24fd6b560a91",
+            "size": 140516,
+            "last_modified": "2025-03-10T04:44:16+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/00775de937b98faf05147678ac63d55e.jpg",
+            "size": 141925,
+            "last_modified": "2025-03-20T04:53:18+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/20250320045029271_666774dad6dcf08ee25bb904.pdf",
+            "size": 8275098,
+            "last_modified": "2025-03-20T04:53:18+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/25f80bfb7bf46d7a2a794d3c23fd7b2a.jpg",
+            "size": 3817,
+            "last_modified": "2025-03-20T04:53:18+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/9343b1114261ece03d86853050316175.jpg",
+            "size": 142627,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/93b8e58c039c7824e0617aaa366a9206.jpg",
+            "size": 100642,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/9cf2ae4585248c0e99a7924aa772bfdd.jpg",
+            "size": 145971,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/aba84a0ef3a08ba9bf4f9e51d5b565da.jpg",
+            "size": 183091,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/c35fea58ce46fd0bf57c19f40a2a3e5e.jpg",
+            "size": 204503,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/dc2945df0718acbbb86e29d319558dba.jpg",
+            "size": 152545,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          },
+          {
+            "key": "20250320045029271_666774dad6dcf08ee25bb904/fd19d550cc19209471e01b32799a0e60.jpg",
+            "size": 143909,
+            "last_modified": "2025-03-20T04:53:17+00:00"
+          }
+        ],
+        "has_sensitive_patterns": false,
+        "sensitive_files": [],
+        "analysis": "Bucket appears to contain documents. Verify if public access is needed."
+      },
+      "cloudfront_analysis": {
+        "bucket": "dev.doc.intel.terrain.lifescience",
+        "behind_cloudfront": false,
+        "distributions": [],
+        "recommendation": "Bucket is NOT behind CloudFront. Direct public access is risky. Consider using CloudFront or restricting access."
+      },
+      "recommendations": [
+        "Bucket has direct public access without CloudFront. This is a security risk.",
+        "Consider: (1) Using CloudFront with proper access controls, (2) Restricting to specific IPs, (3) Using signed URLs for temporary access"
+      ],
+      "risk_level": "HIGH"
+    },
+    {
+      "bucket": "temp.pub.terrainlifescience.com",
+      "timestamp": "2026-01-18T09:05:56.173266",
+      "policy_analysis": {
+        "bucket": "temp.pub.terrainlifescience.com",
+        "has_policy": true,
+        "public_access": true,
+        "public_principals": [
+          "* (Everyone)"
+        ],
+        "allowed_actions": [
+          "s3:GetObject"
+        ],
+        "policy_summary": "Bucket policy allows public access. Actions: s3:GetObject"
+      },
+      "content_analysis": {
+        "bucket": "temp.pub.terrainlifescience.com",
+        "total_files": 100,
+        "total_size_bytes": 16441220,
+        "file_types": {
+          "jpg": 97,
+          "pdf": 3
+        },
+        "sample_files": [
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/0180f9354f5a5bb9c72d6c686169b919.jpg",
+            "size": 75039,
+            "last_modified": "2025-03-20T21:54:43+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/0aa8b664f43ca2e2e88b00558afc33a6.jpg",
+            "size": 85456,
+            "last_modified": "2025-03-20T21:54:40+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/1788c3aa3f481723436146390149e339.jpg",
+            "size": 84838,
+            "last_modified": "2025-03-20T21:54:42+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/20250320145206848_e10334419f7f674588359ca9.pdf",
+            "size": 2486953,
+            "last_modified": "2025-03-20T21:54:43+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/621ffb0c5d1ea5cd291ea0d248740e92.jpg",
+            "size": 2077,
+            "last_modified": "2025-03-20T21:54:40+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/68e5c260d14645cc5278bfcd26321d88.jpg",
+            "size": 149260,
+            "last_modified": "2025-03-20T21:54:41+00:00"
+          },
+          {
+            "key": "20250320145206848_e10334419f7f674588359ca9/ceba9ba647ba208cbb047279c7dea64f.jpg",
+            "size": 92465,
+            "last_modified": "2025-03-20T21:54:42+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/20250321150452154_9cb84eb3f785c3ed782e6e11.pdf",
+            "size": 4458434,
+            "last_modified": "2025-03-21T22:10:35+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/2e4c9720177ee3e4145ae6f7cc583b80.jpg",
+            "size": 1336,
+            "last_modified": "2025-03-21T22:10:33+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/852b53791e2e99eaafd5bc2f4170837c.jpg",
+            "size": 197332,
+            "last_modified": "2025-03-21T22:10:33+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/8902aadc26bf1f57b50793636bd57a71.jpg",
+            "size": 191430,
+            "last_modified": "2025-03-21T22:10:34+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/b27a6bf7d8e9d8956a26895ea04488cb.jpg",
+            "size": 122700,
+            "last_modified": "2025-03-21T22:10:33+00:00"
+          },
+          {
+            "key": "20250321150452154_9cb84eb3f785c3ed782e6e11/e93737856a4c472751b65eb2e27fbe37.jpg",
+            "size": 6031,
+            "last_modified": "2025-03-21T22:10:32+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/0070aa91f4e4a24ab392ef41de1c161d.jpg",
+            "size": 18006,
+            "last_modified": "2025-03-21T23:24:01+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/00bd30c43f41ff334077df13136344fb.jpg",
+            "size": 6009,
+            "last_modified": "2025-03-21T23:24:02+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/07894294281fbe6f2588ab542486a8aa.jpg",
+            "size": 12504,
+            "last_modified": "2025-03-21T23:24:00+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/0872e650169a80a48f2fcadbfb971742.jpg",
+            "size": 20665,
+            "last_modified": "2025-03-21T23:24:03+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/0891d9953aa5a4a2430028bc8b2b9ee6.jpg",
+            "size": 18278,
+            "last_modified": "2025-03-21T23:23:50+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/0a0fc821bcda678a59ae60d1ecb3ae32.jpg",
+            "size": 14314,
+            "last_modified": "2025-03-21T23:24:09+00:00"
+          },
+          {
+            "key": "20250321162159199_3882635033ac0434afa38e9b/0ab2840eff55a914609146bf6847b36a.jpg",
+            "size": 12056,
+            "last_modified": "2025-03-21T23:23:59+00:00"
+          }
+        ],
+        "has_sensitive_patterns": false,
+        "sensitive_files": [],
+        "analysis": "Bucket appears to contain documents. Verify if public access is needed."
+      },
+      "cloudfront_analysis": {
+        "bucket": "temp.pub.terrainlifescience.com",
+        "behind_cloudfront": false,
+        "distributions": [],
+        "recommendation": "Bucket is NOT behind CloudFront. Direct public access is risky. Consider using CloudFront or restricting access."
+      },
+      "recommendations": [
+        "Bucket has direct public access without CloudFront. This is a security risk.",
+        "Consider: (1) Using CloudFront with proper access controls, (2) Restricting to specific IPs, (3) Using signed URLs for temporary access"
+      ],
+      "risk_level": "HIGH"
+    }
+  ],
+  "summary": {
+    "total_buckets": 8,
+    "public_buckets_count": 2,
+    "high_risk_buckets": 2,
+    "medium_risk_buckets": 0
+  }
+}
