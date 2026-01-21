@@ -41,5 +41,7 @@ reports/*.json
 
 # Registration output directories and log files (organized in output/, logs/, reports/ subdirectories)
 aligned_output*/
+# Old root-level aligned output directories (outdated, use output/aligned_output_*/ instead)
+aligned_*/
 *.log
 !package-lock.json

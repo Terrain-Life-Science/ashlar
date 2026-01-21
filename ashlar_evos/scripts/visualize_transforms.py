@@ -252,10 +252,10 @@ def main(argv=None):
         epilog="""
 Examples:
   # Basic visualization
-  visualize_transforms aligned_16x/transforms.json
+  visualize_transforms output/aligned_output_16x/transforms.json
   
   # Use lower pyramid level for faster loading
-  visualize_transforms aligned/transforms.json --level 4
+  visualize_transforms output/aligned_output_1x/transforms.json --level 4
   
   # View a specific channel
   visualize_transforms aligned/transforms.json --channel 1
