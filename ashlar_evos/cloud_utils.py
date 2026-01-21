@@ -33,6 +33,9 @@ def calculate_optimal_pyramid_level(
     Maintains consistent effective resolution (~256×256) regardless of image size,
     ensuring fast coarse alignment for large images while maintaining accuracy.
     
+    For very large images (8x: 16384×16384, 16x: 32768×32768), enforces minimum
+    pyramid level 3 to prevent memory crashes during coarse alignment.
+    
     Parameters
     ----------
     image_width : int
@@ -52,11 +55,19 @@ def calculate_optimal_pyramid_level(
     """
     image_dimension = max(image_width, image_height)
     
-    # Calculate pyramid level: level N means image is 2^N times smaller
-    # We want: image_dimension / 2^level ≈ target_effective_size
-    # So: 2^level ≈ image_dimension / target_effective_size
-    # Therefore: level ≈ log2(image_dimension / target_effective_size)
-    optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
+    # For very large images (8x and 16x), enforce minimum level 3 to prevent OOM
+    # 8x scale: 16384×16384 pixels
+    # 16x scale: 32768×32768 pixels
+    min_level_for_large_images = 3
+    if image_dimension >= 16384:
+        # Enforce minimum level 3 for 8x and 16x images
+        optimal_level = min_level_for_large_images
+    else:
+        # Calculate pyramid level: level N means image is 2^N times smaller
+        # We want: image_dimension / 2^level ≈ target_effective_size
+        # So: 2^level ≈ image_dimension / target_effective_size
+        # Therefore: level ≈ log2(image_dimension / target_effective_size)
+        optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
     
     # Get actual number of pyramid levels from image metadata
     try:
@@ -70,10 +81,37 @@ def calculate_optimal_pyramid_level(
             else:
                 max_pyramid_level = num_levels - 1  # Levels are 0-indexed
                 # Clamp to available pyramid levels, ensuring >= 0
-                optimal_level = min(optimal_level, max(0, max_pyramid_level))
-    except Exception:
+                # For large images, ensure we don't go below minimum level if available
+                if image_dimension >= 16384:
+                    # For 8x/16x images, require level 3 to prevent OOM
+                    if max_pyramid_level >= min_level_for_large_images:
+                        optimal_level = min_level_for_large_images
+                    else:
+                        # Level 3 not available - this is a problem for large images
+                        # Raise error to prevent OOM crashes
+                        raise ValueError(
+                            f"Large image ({image_dimension}×{image_dimension} pixels) requires "
+                            f"pyramid level {min_level_for_large_images} for safe coarse alignment, "
+                            f"but image only has {num_levels} levels (0-{max_pyramid_level}). "
+                            f"Please regenerate images with at least {min_level_for_large_images + 1} pyramid levels."
+                        )
+                else:
+                    # For smaller images, clamp to available levels
+                    optimal_level = min(optimal_level, max(0, max_pyramid_level))
+    except Exception as e:
         # If metadata reading fails, use a conservative default
-        optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
+        # But for large images, we can't proceed safely without knowing available levels
+        if image_dimension >= 16384:
+            # For large images, we need to know available levels to prevent OOM
+            # Re-raise the exception with a helpful message
+            raise RuntimeError(
+                f"Failed to read pyramid levels from {cycle_file} for large image "
+                f"({image_dimension}×{image_dimension} pixels). Cannot safely determine "
+                f"coarse alignment level. Original error: {e}"
+            ) from e
+        else:
+            # For smaller images, use conservative fallback
+            optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
     
     # Final validation: ensure optimal_level is never negative
     return max(0, optimal_level)
@@ -82,13 +120,16 @@ def calculate_optimal_pyramid_level(
 def optimize_worker_count(
     num_tiles: int,
     num_workers: Optional[int] = None,
-    is_cloud: bool = False
+    is_cloud: bool = False,
+    image_width: Optional[int] = None,
+    image_height: Optional[int] = None
 ) -> int:
     """
     Optimize worker count for parallel tile processing.
     
     For cloud deployments, leaves cores free for I/O operations.
     For local deployments, uses all available cores efficiently.
+    For very large images (16x scale), limits workers to prevent OOM.
     
     Parameters
     ----------
@@ -99,6 +140,10 @@ def optimize_worker_count(
     is_cloud : bool
         Whether running on cloud infrastructure (default: False)
         If True, leaves 1-2 cores free for I/O
+    image_width : int, optional
+        Image width in pixels (for size-based worker limiting)
+    image_height : int, optional
+        Image height in pixels (for size-based worker limiting)
         
     Returns
     -------
@@ -107,6 +152,29 @@ def optimize_worker_count(
     """
     if num_workers is None:
         num_workers = os.cpu_count() or 1
+    
+    # Image-size-based worker limits for very large images
+    # This prevents OOM crashes on 16x images (32768×32768)
+    if image_width is not None and image_height is not None:
+        image_dimension = max(image_width, image_height)
+        
+        # For 16x images (32768×32768), limit to 2 workers max
+        # For 8x images (16384×16384), limit to 4 workers max
+        # This prevents excessive memory usage from parallel tile loading
+        if image_dimension >= 32768:
+            # 16x scale: very conservative worker count
+            max_workers_by_size = 2
+        elif image_dimension >= 16384:
+            # 8x scale: moderate worker count
+            max_workers_by_size = 4
+        elif image_dimension >= 8192:
+            # 4x scale: can use more workers but still be conservative
+            max_workers_by_size = min(6, num_workers)
+        else:
+            # Smaller images: no size-based limit
+            max_workers_by_size = num_workers
+        
+        num_workers = min(num_workers, max_workers_by_size)
     
     # Don't exceed tile count (no benefit from more workers than tiles)
     if num_tiles > 0:
@@ -176,8 +244,26 @@ def estimate_memory_usage(
     parallel_memory_mb = worker_memory_mb * num_workers
     
     # Base memory (readers, transforms, metadata, etc.)
-    # Rough estimate based on image size
-    base_memory_mb = 200 + (image_width * image_height * num_channels * 2) / (1024 * 1024) * 0.1
+    # Improved estimate: accounts for reader overhead, metadata, and intermediate arrays
+    # For large images, reader overhead is more significant
+    image_area = image_width * image_height
+    image_memory_mb = (image_area * num_channels * 2) / (1024 * 1024)  # Full image size in MB
+    
+    # Base overhead: 200 MB for Python, libraries, metadata
+    # Reader overhead: scales with image size (more significant for large images)
+    # Use 5% of image size for reader overhead (was 10% but that was too low)
+    # For very large images (>1GB), add additional overhead
+    if image_memory_mb > 1000:
+        # Very large images: 3% base + 50 MB additional overhead
+        reader_overhead_mb = image_memory_mb * 0.03 + 50
+    elif image_memory_mb > 500:
+        # Large images: 4% base + 25 MB additional overhead
+        reader_overhead_mb = image_memory_mb * 0.04 + 25
+    else:
+        # Smaller images: 5% base overhead
+        reader_overhead_mb = image_memory_mb * 0.05
+    
+    base_memory_mb = 200 + reader_overhead_mb
     
     return {
         'per_tile_mb': tile_memory_mb,
