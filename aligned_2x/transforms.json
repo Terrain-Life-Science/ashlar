@@ -5,11 +5,11 @@
   "pixel_size_um": 0.325,
   "image_size": null,
   "transform_type": "similarity",
-  "coarse_only": true,
+  "coarse_only": false,
   "cycles": [
     {
       "index": 0,
-      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_00.ome.tif",
+      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\2x\\cycle_00.ome.tif",
       "filename": "cycle_00.ome.tif",
       "transform": [
         [
@@ -44,18 +44,18 @@
     },
     {
       "index": 1,
-      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_01.ome.tif",
+      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\2x\\cycle_01.ome.tif",
       "filename": "cycle_01.ome.tif",
       "transform": [
         [
-          1.0,
-          0.0,
-          0.0
+          1.0000000000000002,
+          -7.771561172376096e-16,
+          -2.5000000000001843
         ],
         [
-          0.0,
-          1.0,
-          8.399999618530273
+          7.771561172376096e-16,
+          1.0000000000000002,
+          1.7999999523156367
         ],
         [
           0.0,
@@ -63,34 +63,34 @@
           1.0
         ]
       ],
-      "transform_type": "translation",
+      "transform_type": "similarity",
       "shift_yx": [
-        8.399999618530273,
+        0.0,
         0.0
       ],
-      "error": 0.0608997605741024,
+      "error": 0.23844760656356812,
       "translation_xy": [
-        0.0,
-        8.399999618530273
+        -2.5000000000001843,
+        1.7999999523156367
       ],
-      "rotation_rad": 0.0,
-      "scale": 1.0,
-      "rmse": 0.0608997605741024
+      "rotation_rad": 7.771561172376094e-16,
+      "scale": 1.0000000000000002,
+      "rmse": 3.2871030941353094e-12
     },
     {
       "index": 2,
-      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\16x\\cycle_02.ome.tif",
+      "file": "C:\\Users\\Work\\github\\ashlar\\synthetic_test_images\\2x\\cycle_02.ome.tif",
       "filename": "cycle_02.ome.tif",
       "transform": [
         [
-          1.0,
-          0.0,
-          -1.2000000476837158
+          0.9955357145518067,
+          -8.881784197001252e-16,
+          0.842856645583647
         ],
         [
-          0.0,
-          1.0,
-          4.400000095367432
+          8.881784197001252e-16,
+          0.9955357145518067,
+          3.9428565502163537
         ],
         [
           0.0,
@@ -98,19 +98,19 @@
           1.0
         ]
       ],
-      "transform_type": "translation",
+      "transform_type": "similarity",
       "shift_yx": [
-        4.400000095367432,
-        -1.2000000476837158
+        -8.0,
+        -8.0
       ],
-      "error": 0.5126199722290039,
+      "error": 0.20278136432170868,
       "translation_xy": [
-        -1.2000000476837158,
-        4.400000095367432
+        0.842856645583647,
+        3.9428565502163537
       ],
-      "rotation_rad": 0.0,
-      "scale": 1.0,
-      "rmse": 0.5126199722290039
+      "rotation_rad": 8.921612823302739e-16,
+      "scale": 0.9955357145518067,
+      "rmse": 3.371747479179864e-07
     }
   ]
 }
