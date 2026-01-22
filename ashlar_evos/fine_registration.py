@@ -337,11 +337,32 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     import multiprocessing as mp
     import os
     
-    # Optimize worker count for cloud deployments
+    # Get image dimensions from grid for size-based worker limiting
+    # This helps prevent OOM on very large images (16x scale)
+    # The grid stores image_shape as (height, width)
+    if hasattr(grid, 'image_shape') and grid.image_shape:
+        image_height, image_width = grid.image_shape
+    else:
+        # Fallback: try to get from reader
+        try:
+            ref_shape = ref_reader.get_shape_at_level(0)
+            image_height, image_width = ref_shape
+        except Exception:
+            # Last resort: estimate from grid bounds
+            if grid:
+                image_width = max(tile.x + tile.width for tile in grid)
+                image_height = max(tile.y + tile.height for tile in grid)
+            else:
+                image_width = None
+                image_height = None
+    
+    # Optimize worker count for cloud deployments with image size information
     num_workers = optimize_worker_count(
         num_tiles=len(grid),
         num_workers=num_workers,
-        is_cloud=False  # Can be made configurable in the future
+        is_cloud=False,  # Can be made configurable in the future
+        image_width=image_width,
+        image_height=image_height
     )
     
     # For small grids or single worker, use sequential processing
@@ -386,6 +407,14 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     ref_path = ref_reader.filepath
     target_path = target_reader.filepath
     
+    # On Windows, close parent readers before spawning worker processes to avoid file locking
+    # The workers will create their own readers, and the finally block in pipeline.py
+    # will safely handle closing (idempotent close() method)
+    import sys
+    if sys.platform == 'win32':
+        ref_reader.close()
+        target_reader.close()
+    
     # Convert TileInfo objects to tuples for pickling
     tile_tuples = [(tile.y, tile.x, tile.height, tile.width, tile.tile_idx) 
                    for tile in grid]
@@ -401,27 +430,76 @@ def register_all_tiles(ref_reader: PyramidalOMETiffReader,
     results = []
     failed_tiles = []
     
-    with mp.Pool(num_workers) as pool:
-        worker_results = pool.map(_safe_worker_wrapper, worker_args)
-    
-    # Process results and handle failures
-    for tile_idx, result in enumerate(worker_results):
-        if result[0] is None:
-            # Worker returned error
-            error = result[1]
-            if skip_failed_tiles:
-                warnings.warn(
-                    f"Failed to register tile {tile_idx}: {error}\n"
-                    f"  Skipping tile and continuing with others.",
-                    UserWarning
-                )
-                failed_tiles.append(tile_idx)
-                # Add zero shift with high error
-                results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
-            else:
-                raise RuntimeError(f"Tile {tile_idx} registration failed: {error}") from error
+    # Try multiprocessing, but fall back to sequential on Windows if it fails
+    try:
+        if sys.platform == 'win32':
+            # Use spawn context explicitly for Windows compatibility
+            ctx = mp.get_context('spawn')
+            with ctx.Pool(num_workers) as pool:
+                worker_results = pool.map(_safe_worker_wrapper, worker_args)
         else:
-            results.append(result)
+            # On Unix-like systems, use default context (fork)
+            with mp.Pool(num_workers) as pool:
+                worker_results = pool.map(_safe_worker_wrapper, worker_args)
+        
+        # Process results and handle failures
+        for tile_idx, result in enumerate(worker_results):
+            if result[0] is None:
+                # Worker returned error
+                error = result[1]
+                if skip_failed_tiles:
+                    warnings.warn(
+                        f"Failed to register tile {tile_idx}: {error}\n"
+                        f"  Skipping tile and continuing with others.",
+                        UserWarning
+                    )
+                    failed_tiles.append(tile_idx)
+                    # Add zero shift with high error
+                    results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
+                else:
+                    raise RuntimeError(f"Tile {tile_idx} registration failed: {error}") from error
+            else:
+                results.append(result)
+        
+    except RuntimeError as e:
+        # On Windows, if multiprocessing fails due to bootstrapping/import issues, fall back to sequential
+        if sys.platform == 'win32' and ("bootstrapping" in str(e).lower() or "main" in str(e).lower()):
+            warnings.warn(
+                f"Multiprocessing not available on Windows: {e}\n"
+                f"  Falling back to sequential processing. This may be slower.",
+                UserWarning
+            )
+            
+            # Re-open readers if they were closed (Windows case)
+            if not hasattr(ref_reader, '_zarr_store') or ref_reader._zarr_store is None:
+                ref_reader = PyramidalOMETiffReader(ref_path)
+            if not hasattr(target_reader, '_zarr_store') or target_reader._zarr_store is None:
+                target_reader = PyramidalOMETiffReader(target_path)
+            
+            # Fall back to sequential processing
+            for tile_idx, tile_info in enumerate(grid):
+                try:
+                    shift, error = register_single_tile_pair(
+                        ref_reader, target_reader, tile_info,
+                        dapi_channel=dapi_channel,
+                        coarse_shift=coarse_shift,
+                        filter_sigma=filter_sigma,
+                        max_retries=max_retries
+                    )
+                    results.append((shift, error))
+                except Exception as tile_error:
+                    if skip_failed_tiles:
+                        warnings.warn(
+                            f"Failed to register tile {tile_idx}: {tile_error}\n"
+                            f"  Skipping tile and continuing with others.",
+                            UserWarning
+                        )
+                        failed_tiles.append(tile_idx)
+                        results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
+                    else:
+                        raise RuntimeError(f"Tile {tile_idx} registration failed: {tile_error}") from tile_error
+        else:
+            raise
     
     if failed_tiles and skip_failed_tiles:
         warnings.warn(

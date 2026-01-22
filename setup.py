@@ -114,7 +114,8 @@ setup(
             'verify_synthetic_images=ashlar.scripts.verify_synthetic_images:main',
             'register_evos=ashlar_evos.scripts.register_evos:main',
             'register_multi_scale=ashlar_evos.scripts.register_multi_scale:main',
-            'validate_registration=ashlar_evos.scripts.validate_registration:main'
+            'validate_registration=ashlar_evos.scripts.validate_registration:main',
+            'visualize_transforms=ashlar_evos.scripts.visualize_transforms:main'
         ]
     },
     classifiers=[

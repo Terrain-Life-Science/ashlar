@@ -250,12 +250,65 @@ class EvosRegistrationPipeline:
         # Validate input files
         self._validate_input_files()
         
-        # Check memory usage if requested
+        # Resolve worker count early (before memory check) to get accurate estimates
+        # This is critical: memory check needs to know actual worker count
+        if self.image_size and self.image_size.get('width') and self.image_size.get('height'):
+            # Estimate tile count for worker optimization
+            step = self.tile_size - self.tile_overlap
+            num_tiles_x = (self.image_size['width'] + step - 1) // step
+            num_tiles_y = (self.image_size['height'] + step - 1) // step
+            estimated_tiles = num_tiles_x * num_tiles_y
+            
+            # Resolve worker count with image size information
+            self.num_workers = optimize_worker_count(
+                num_tiles=estimated_tiles,
+                num_workers=self.num_workers,
+                is_cloud=False,  # Can be made configurable
+                image_width=self.image_size['width'],
+                image_height=self.image_size['height']
+            )
+        elif self.num_workers is None:
+            # No image size info, just resolve from None to CPU count
+            import os
+            self.num_workers = os.cpu_count() or 1
+        
+        # Check memory usage if requested (now with correct worker count)
         if self.check_memory and self.image_size:
             self._check_memory_usage()
         
-        # Auto-configure pyramid level if image_size is provided
+        # Auto-configure pyramid level and tile size if image_size is provided
         if image_size is not None and image_size.get('width') and image_size.get('height'):
+            image_dimension = max(image_size['width'], image_size['height'])
+            
+            # Reduce tile size for very large images (16x) to prevent OOM
+            # Smaller tiles = less memory per worker, more tiles (acceptable overhead)
+            if image_dimension >= 32768:
+                # 16x images: use smaller tiles to reduce memory per worker
+                if self.tile_size > 2048:
+                    original_tile_size = self.tile_size
+                    self.tile_size = 2048
+                    # Adjust overlap proportionally
+                    self.tile_overlap = min(256, self.tile_overlap // 2)
+                    if self.verbose:
+                        self._print(
+                            f"Reduced tile size from {original_tile_size} to {self.tile_size} "
+                            f"(overlap: {self.tile_overlap}) for 16x image to prevent OOM.",
+                            level='INFO'
+                        )
+            elif image_dimension >= 16384:
+                # 8x images: consider reducing tile size if default is large
+                if self.tile_size > 3072:
+                    original_tile_size = self.tile_size
+                    self.tile_size = 3072
+                    # Adjust overlap proportionally
+                    self.tile_overlap = min(384, int(self.tile_overlap * 0.75))
+                    if self.verbose:
+                        self._print(
+                            f"Reduced tile size from {original_tile_size} to {self.tile_size} "
+                            f"(overlap: {self.tile_overlap}) for 8x image to optimize memory.",
+                            level='INFO'
+                        )
+            
             try:
                 optimal_level = calculate_optimal_pyramid_level(
                     image_size['width'],
@@ -265,8 +318,13 @@ class EvosRegistrationPipeline:
                 if self.verbose:
                     self._print(f"Auto-configured pyramid level: {optimal_level} "
                                f"(based on image size {image_size['width']}×{image_size['height']})")
+                
                 self.coarse_pyramid_level = optimal_level
             except Exception as e:
+                # Re-raise if it's a ValueError or RuntimeError (these indicate real problems)
+                if isinstance(e, (ValueError, RuntimeError)):
+                    raise
+                # For other exceptions, just warn
                 self._print(f"Could not auto-configure pyramid level: {e}", level='WARNING')
         
         # Detect large images and provide recommendations
@@ -295,6 +353,114 @@ class EvosRegistrationPipeline:
         log_level = getattr(logging, level.upper(), logging.INFO)
         if self.verbose or level in ('WARNING', 'ERROR', 'CRITICAL'):
             self.logger.log(log_level, message)
+    
+    def _print_clean(self, message: str, level: str = 'INFO', use_timestamp: bool = False):
+        """
+        Print message with cleaner formatting.
+        
+        - Regular progress: no timestamps, direct to stdout
+        - Warnings/Errors: with timestamps, via logger
+        
+        Parameters
+        ----------
+        message : str
+            Message to print
+        level : str
+            Log level ('INFO', 'WARNING', 'ERROR', 'CRITICAL')
+        use_timestamp : bool
+            If True, use logger with timestamps (default: False)
+        """
+        if level in ('WARNING', 'ERROR', 'CRITICAL'):
+            # Always log warnings/errors with timestamps
+            log_level = getattr(logging, level.upper(), logging.INFO)
+            self.logger.log(log_level, message)
+        elif self.verbose:
+            if use_timestamp:
+                # Use logger for messages that need timestamps
+                self.logger.info(message)
+            else:
+                # Direct print for cleaner progress output
+                print(message)
+    
+    def _print_header(self, title: str):
+        """Print a clean section header."""
+        print()
+        print("=" * 70)
+        print(f"  {title}")
+        print("=" * 70)
+    
+    def _print_phase_start(self, phase_num: int, phase_name: str, cycle_idx: Optional[int] = None):
+        """Print phase start with clean formatting."""
+        cycle_str = f" - Cycle {cycle_idx}" if cycle_idx is not None else ""
+        print(f"\n[{phase_num}] {phase_name}{cycle_str}")
+        print("-" * 70)
+    
+    def _print_status(self, message: str, status: str = "✓"):
+        """Print status message with indicator."""
+        try:
+            print(f"  {status} {message}")
+        except UnicodeEncodeError:
+            # Fallback for Windows console that can't encode Unicode characters
+            status_ascii = "[OK]" if status == "✓" else status
+            print(f"  {status_ascii} {message}")
+    
+    def _print_progress(self, current: int, total: int, item_name: str = "items"):
+        """Print progress indicator."""
+        percent = (current / total * 100) if total > 0 else 0
+        bar_length = 40
+        filled = int(bar_length * current / total) if total > 0 else 0
+        bar = "█" * filled + "░" * (bar_length - filled)
+        print(f"  [{bar}] {current}/{total} {item_name} ({percent:.1f}%)", end='\r')
+        if current == total:
+            print()  # New line when complete
+    
+    def _log_memory_usage(self, phase_name: str = ""):
+        """
+        Log current memory usage for monitoring.
+        
+        Parameters
+        ----------
+        phase_name : str
+            Name of the phase being logged (for context)
+        """
+        try:
+            import psutil
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            current_mb = mem_info.rss / (1024 * 1024)
+            
+            # Get system memory info
+            sys_mem = psutil.virtual_memory()
+            available_mb = sys_mem.available / (1024 * 1024)
+            total_mb = sys_mem.total / (1024 * 1024)
+            percent_used = sys_mem.percent
+            
+            context = f" [{phase_name}]" if phase_name else ""
+            self._print(
+                f"Memory usage{context}: {current_mb:.1f} MB (process), "
+                f"{available_mb:.1f} MB available / {total_mb:.1f} MB total "
+                f"({percent_used:.1f}% system used)"
+            )
+            
+            # Warn if memory usage is high
+            if percent_used > 85:
+                self._print(
+                    f"WARNING: System memory usage is high ({percent_used:.1f}%). "
+                    f"Consider reducing tile size or number of workers.",
+                    level='WARNING'
+                )
+            if current_mb > 10_000:  # > 10GB
+                self._print(
+                    f"WARNING: Process memory usage is high ({current_mb:.1f} MB). "
+                    f"This may indicate a memory leak or inefficient processing.",
+                    level='WARNING'
+                )
+        except ImportError:
+            # psutil not available - skip memory logging
+            pass
+        except Exception as e:
+            # Don't fail pipeline if memory logging fails
+            self.logger.debug(f"Could not log memory usage: {e}")
     
     def _validate_input_files(self):
         """
@@ -471,7 +637,7 @@ class EvosRegistrationPipeline:
     
     def _check_memory_usage(self):
         """
-        Check estimated memory usage and warn if excessive.
+        Check estimated memory usage for fine registration and warn if excessive.
         
         Also adjusts worker count if memory pressure is detected.
         """
@@ -488,16 +654,16 @@ class EvosRegistrationPipeline:
         except Exception:
             num_channels = 3  # Default
         
-        # Estimate memory usage
+        # Estimate memory usage (now using resolved worker count)
         memory_est = estimate_memory_usage(
             image_width=self.image_size['width'],
             image_height=self.image_size['height'],
             tile_size=self.tile_size,
-            num_workers=self.num_workers or 1,
+            num_workers=self.num_workers,  # Already resolved, no need for "or 1"
             num_channels=num_channels
         )
         
-        # Check available memory if psutil is available
+            # Check available memory if psutil is available
         try:
             import psutil
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
@@ -533,6 +699,16 @@ class EvosRegistrationPipeline:
                         f"Consider reducing tile_size or num_workers.",
                         level='WARNING'
                     )
+            
+            # Log memory estimate for debugging
+            if self.verbose:
+                self._print(
+                    f"Memory estimate for fine registration: "
+                    f"{estimated_mb:.0f} MB total "
+                    f"({memory_est['base_mb']:.0f} MB base + "
+                    f"{memory_est['parallel_workers_mb']:.0f} MB for {self.num_workers} workers)",
+                    level='DEBUG'
+                )
         except ImportError:
             # psutil not available, just log estimate
             self._print(
@@ -540,6 +716,75 @@ class EvosRegistrationPipeline:
                 f"Install psutil for automatic memory checking.",
                 level='DEBUG'
             )
+    
+    def _check_coarse_alignment_memory(self):
+        """
+        Check estimated memory usage for coarse alignment phase.
+        
+        Coarse alignment loads pyramid levels into memory, which can be significant
+        for large images even at downsampled levels.
+        """
+        if not self.image_size or not self.image_size.get('width') or not self.image_size.get('height'):
+            return
+        
+        from .metadata import OMEMetadata
+        
+        # Get number of channels and calculate pyramid level size
+        try:
+            with OMEMetadata(self.cycle_files[0]) as meta:
+                num_channels = meta.num_channels
+                # Get shape at the pyramid level we'll use
+                pyramid_level = self.coarse_pyramid_level if not self.coarse_only else 2
+                try:
+                    level_shape = meta.shape_at_level(pyramid_level)
+                    level_area = level_shape[0] * level_shape[1]
+                except Exception:
+                    # Fallback: estimate from base size
+                    level_area = (self.image_size['width'] * self.image_size['height']) / (2 ** (pyramid_level * 2))
+        except Exception:
+            num_channels = 3
+            pyramid_level = self.coarse_pyramid_level if not self.coarse_only else 2
+            level_area = (self.image_size['width'] * self.image_size['height']) / (2 ** (pyramid_level * 2))
+        
+        # Estimate memory: 2 images (ref + target) at pyramid level
+        # Each image: level_area × num_channels × 2 bytes (uint16)
+        level_memory_mb = (level_area * num_channels * 2 * 2) / (1024 * 1024)  # 2 images
+        
+        # Add overhead for phase correlation (upsampling creates temporary arrays)
+        if self.coarse_only:
+            # 10x upsampling creates larger temporary arrays
+            correlation_overhead_mb = level_memory_mb * 0.5  # 50% overhead
+        else:
+            correlation_overhead_mb = level_memory_mb * 0.2  # 20% overhead
+        
+        total_coarse_mb = level_memory_mb + correlation_overhead_mb + 100  # 100 MB base
+        
+        # Check available memory if psutil is available
+        try:
+            import psutil
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            
+            if total_coarse_mb > available_memory_mb * 0.8:
+                self._print(
+                    f"WARNING: Coarse alignment may use {total_coarse_mb:.0f} MB "
+                    f"({available_memory_mb:.0f} MB available). "
+                    f"Consider using a higher pyramid level or reducing image size.",
+                    level='WARNING'
+                )
+            elif self.verbose:
+                self._print(
+                    f"Coarse alignment memory estimate: {total_coarse_mb:.0f} MB "
+                    f"(pyramid level {pyramid_level})",
+                    level='DEBUG'
+                )
+        except ImportError:
+            # psutil not available, just log estimate
+            if self.verbose:
+                self._print(
+                    f"Coarse alignment memory estimate: {total_coarse_mb:.0f} MB. "
+                    f"Install psutil for automatic memory checking.",
+                    level='DEBUG'
+                )
     
     def _validate_shift(self, shift: np.ndarray, cycle_idx: int) -> bool:
         """
@@ -711,18 +956,37 @@ class EvosRegistrationPipeline:
             Dictionary mapping cycle index to (shift, error) tuple
         """
         with self.performance_monitor.phase("Coarse Alignment"):
-            self._print("Phase 1: Coarse Alignment")
+            self._print_phase_start(1, "Coarse Alignment")
+            self._log_memory_usage("Coarse Alignment (start)")
+            
+            # Check memory for coarse alignment if requested
+            if self.check_memory and self.image_size:
+                self._check_coarse_alignment_memory()
             
             # If coarse_only, use level 2 (4x downsampled) with 10x upsampling for sub-pixel accuracy
             # This minimizes memory usage while maintaining accuracy
             if self.coarse_only:
                 pyramid_level = 2  # 4x downsampled - minimizes memory usage
                 upsample = 10
-                self._print(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
+                self._print_clean(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
             else:
                 pyramid_level = self.coarse_pyramid_level
-                upsample = 1
-                self._print(f"  Using pyramid level {pyramid_level}")
+                
+                # For large images (4x, 8x, 16x) using pyramid level 3, use upsampling to improve
+                # coarse alignment precision. At level 3, these images have effective sizes of
+                # 1024×1024 (4x), 2048×2048 (8x), or 4096×4096 (16x), which are too large for
+                # accurate phase correlation. Upsampling helps detect sub-pixel shifts more accurately.
+                if self.image_size and pyramid_level == 3:
+                    image_dimension = max(self.image_size.get('width', 0), self.image_size.get('height', 0))
+                    if image_dimension >= 8192:  # 4x, 8x, and 16x images
+                        upsample = 10
+                        self._print_clean(f"  Using pyramid level {pyramid_level} with {upsample}x upsampling for improved precision on large image ({image_dimension}×{image_dimension})")
+                    else:
+                        upsample = 1
+                        self._print_clean(f"  Using pyramid level {pyramid_level}")
+                else:
+                    upsample = 1
+                    self._print_clean(f"  Using pyramid level {pyramid_level}")
             
             self.coarse_shifts = coarse_align_all_cycles(
                 self.cycle_files,
@@ -732,12 +996,14 @@ class EvosRegistrationPipeline:
                 upsample=upsample
             )
             
-            self._print(f"  Reference cycle: {self.reference_idx}")
+            self._print_clean(f"  Reference cycle: {self.reference_idx}")
             for i, (shift, error) in self.coarse_shifts.items():
                 if i != self.reference_idx:
                     # Validate shift magnitude
                     self._validate_shift(shift, i)
-                    self._print(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+                    self._print_clean(f"  Cycle {i}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+            
+            self._log_memory_usage("Coarse Alignment (end)")
             
             # Mark phase as complete and save checkpoint
             if 'coarse_alignment' not in self.completed_phases:
@@ -761,6 +1027,8 @@ class EvosRegistrationPipeline:
         list
             List of (shift, error) tuples for each tile
         """
+        self._log_memory_usage(f"Fine Registration (start) - Cycle {cycle_idx}")
+        
         if cycle_idx == self.reference_idx:
             # Reference cycle has no shifts
             return []
@@ -769,7 +1037,7 @@ class EvosRegistrationPipeline:
             raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
         
         with self.performance_monitor.phase(f"Fine Registration - Cycle {cycle_idx}"):
-            self._print(f"Phase 2: Fine Registration - Cycle {cycle_idx}")
+            self._print_phase_start(2, "Fine Registration", cycle_idx=cycle_idx)
             
             # Get image shape from metadata
             with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
@@ -777,7 +1045,7 @@ class EvosRegistrationPipeline:
             
             # Create tile grid
             grid = TileGrid(shape, tile_size=self.tile_size, overlap=self.tile_overlap)
-            self._print(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
+            self._print_clean(f"  Tile grid: {len(grid)} tiles ({grid.get_grid_dimensions()})")
             
             # Get coarse shift
             coarse_shift, _ = self.coarse_shifts[cycle_idx]
@@ -789,7 +1057,7 @@ class EvosRegistrationPipeline:
             try:
                 # Validate coarse shift before fine registration
                 if not self._validate_shift(coarse_shift, cycle_idx):
-                    self._print(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
+                    self._print_clean(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
                 
                 results = register_all_tiles(
                     ref_reader, target_reader, grid,
@@ -799,7 +1067,9 @@ class EvosRegistrationPipeline:
                     skip_failed_tiles=True  # Skip failed tiles gracefully
                 )
                 self.fine_shifts[cycle_idx] = results
-                self._print(f"  Registered {len(results)} tiles")
+                self._print_status(f"Registered {len(results)} tiles")
+                
+                self._log_memory_usage(f"Fine Registration (end) - Cycle {cycle_idx}")
                 
                 # Mark cycle as complete and save checkpoint
                 if cycle_idx not in self.completed_cycles:
@@ -826,6 +1096,8 @@ class EvosRegistrationPipeline:
         dict
             Transform fitting results
         """
+        self._log_memory_usage(f"Transform Fitting (start) - Cycle {cycle_idx}")
+        
         if cycle_idx == self.reference_idx:
             # Reference cycle has identity transform
             identity = np.eye(3)
@@ -847,7 +1119,8 @@ class EvosRegistrationPipeline:
                 raise ValueError(f"Coarse alignment not run for cycle {cycle_idx}")
             
             with self.performance_monitor.phase(f"Transform Creation - Cycle {cycle_idx}"):
-                self._print(f"Phase 3: Transform Creation - Cycle {cycle_idx} (coarse-only mode)")
+                self._print_phase_start(3, "Transform Creation", cycle_idx=cycle_idx)
+                self._print_clean("  (coarse-only mode)")
                 
                 coarse_shift, coarse_error = self.coarse_shifts[cycle_idx]
                 # Create translation transform: [1, 0, tx; 0, 1, ty; 0, 0, 1]
@@ -867,8 +1140,8 @@ class EvosRegistrationPipeline:
                 }
                 
                 self.transforms[cycle_idx] = result
-                self._print(f"  Translation: ({coarse_shift[1]:.4f}, {coarse_shift[0]:.4f}) pixels")
-                self._print(f"  Error: {coarse_error:.4f}")
+                self._print_clean(f"  Translation: ({coarse_shift[1]:.4f}, {coarse_shift[0]:.4f}) pixels")
+                self._print_clean(f"  Error: {coarse_error:.4f}")
             
             return result
         
@@ -877,7 +1150,7 @@ class EvosRegistrationPipeline:
             raise ValueError(f"Fine registration not run for cycle {cycle_idx}")
         
         with self.performance_monitor.phase(f"Transform Fitting - Cycle {cycle_idx}"):
-            self._print(f"Phase 3: Transform Fitting - Cycle {cycle_idx}")
+            self._print_phase_start(3, "Transform Fitting", cycle_idx=cycle_idx)
             
             # Get image shape and create grid
             with OMEMetadata(self.cycle_files[self.reference_idx]) as meta:
@@ -894,7 +1167,7 @@ class EvosRegistrationPipeline:
             # Filter outliers
             inliers = filter_outliers(shifts, errors, max_shift=50.0, max_error=None)
             num_inliers = np.sum(inliers)
-            self._print(f"  Inliers: {num_inliers}/{len(shifts)}")
+            self._print_clean(f"  Inliers: {num_inliers}/{len(shifts)}")
             
             # Fit transform
             if self.transform_type == 'similarity':
@@ -906,7 +1179,9 @@ class EvosRegistrationPipeline:
             
             result['transform_type'] = self.transform_type
             self.transforms[cycle_idx] = result
-            self._print(f"  RMSE: {result['rmse']:.4f}")
+            self._print_clean(f"  RMSE: {result['rmse']:.4f}")
+            
+            self._log_memory_usage(f"Transform Fitting (end) - Cycle {cycle_idx}")
             
             # Save checkpoint after transform fitting
             if self.checkpoint_path:
@@ -935,14 +1210,15 @@ class EvosRegistrationPipeline:
             transform_matrix = self.transforms[cycle_idx]['transform']
         
         with self.performance_monitor.phase(f"Apply Transform - Cycle {cycle_idx}"):
-            self._print(f"Phase 4: Apply Transform - Cycle {cycle_idx}")
-            self._print(f"  Writing to: {output_file}")
+            self._print_phase_start(4, "Apply Transform", cycle_idx=cycle_idx)
+            self._print_clean(f"  Writing to: {output_file}")
+            self._log_memory_usage(f"Transform Application (start) - Cycle {cycle_idx}")
             
             # Check if GPU is available
             from .transform_apply import is_gpu_available
             use_gpu = is_gpu_available() and self.performance_monitor.metrics.gpu_available
             if use_gpu:
-                self._print(f"Using GPU acceleration for transform", level='INFO')
+                self._print_clean(f"Using GPU acceleration for transform")
             
             write_aligned_cycle(
                 self.cycle_files[cycle_idx],
@@ -960,7 +1236,9 @@ class EvosRegistrationPipeline:
             # Record output file size
             self.performance_monitor.record_output_file(str(output_file))
             
-            self._print(f"  [OK] Complete: {output_file}")
+            self._log_memory_usage(f"Transform Application (end) - Cycle {cycle_idx}")
+            
+            self._print_status(f"Complete: {output_file}")
             
             # Save checkpoint after each cycle is written
             if self.checkpoint_path:
@@ -1056,45 +1334,44 @@ class EvosRegistrationPipeline:
         for cycle_file in self.cycle_files:
             self.performance_monitor.record_input_file(str(cycle_file))
         
-        self._print("=" * 60)
-        self._print("Evos Registration Pipeline")
+        title = "Evos Registration Pipeline"
         if resume and self.completed_phases:
-            self._print("(Resuming from checkpoint)")
-        self._print("=" * 60)
-        self._print(f"Reference cycle: {self.reference_idx}")
-        self._print(f"Total cycles: {len(self.cycle_files)}")
-        self._print("")
+            title += " (Resuming from checkpoint)"
+        self._print_header(title)
+        self._print_clean(f"Reference cycle: {self.reference_idx}")
+        self._print_clean(f"Total cycles: {len(self.cycle_files)}")
+        print()
         
         # Phase 1: Coarse alignment (skip if already completed)
         if 'coarse_alignment' not in self.completed_phases:
             self.run_coarse_alignment()
-            self._print("")
+            print()
         else:
-            self._print("Phase 1: Coarse Alignment - SKIPPED (already completed)")
-            self._print("")
+            self._print_clean("Phase 1: Coarse Alignment - SKIPPED (already completed)")
+            print()
         
         # Phase 2: Fine registration for each cycle (skip if coarse_only or already completed)
         if not self.coarse_only:
             for i in range(len(self.cycle_files)):
                 if i != self.reference_idx:
                     if i in self.completed_cycles:
-                        self._print(f"Phase 2: Fine Registration - Cycle {i} - SKIPPED (already completed)")
-                        self._print("")
+                        self._print_clean(f"Phase 2: Fine Registration - Cycle {i} - SKIPPED (already completed)")
+                        print()
                     else:
                         self.run_fine_registration(i)
-                        self._print("")
+                        print()
         else:
-            self._print("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
-            self._print("")
+            self._print_clean("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
+            print()
         
         # Phase 3: Fit transforms (skip if already completed)
         for i in range(len(self.cycle_files)):
             if i in self.transforms and i in self.completed_cycles:
-                self._print(f"Phase 3: Transform Fitting - Cycle {i} - SKIPPED (already completed)")
-                self._print("")
+                self._print_clean(f"Phase 3: Transform Fitting - Cycle {i} - SKIPPED (already completed)")
+                print()
             else:
                 self.fit_transform(i)
-                self._print("")
+                print()
             
             # Record accuracy metrics
             coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
@@ -1109,22 +1386,20 @@ class EvosRegistrationPipeline:
         for i in range(len(self.cycle_files)):
             output_file = output_dir / f"aligned_cycle_{i:02d}.ome.tif"
             if output_file.exists() and i in self.completed_cycles:
-                self._print(f"Phase 4: Apply Transform - Cycle {i} - SKIPPED (output file exists)")
-                self._print("")
+                self._print_clean(f"Phase 4: Apply Transform - Cycle {i} - SKIPPED (output file exists)")
+                print()
                 output_files[i] = output_file
             else:
                 self.apply_transform(i, output_file)
                 output_files[i] = output_file
-                self._print("")
+                print()
         
         # Finalize performance monitoring
         self.performance_monitor.finalize()
         
         # Generate and print summary report
-        self._print("=" * 60)
-        self._print("Registration Complete!")
-        self._print("=" * 60)
-        self._print("")
+        self._print_header("Registration Complete!")
+        print()
         
         # Print performance summary
         self.performance_monitor.print_summary()
@@ -1136,6 +1411,175 @@ class EvosRegistrationPipeline:
                 scale_factor=self.scale_factor,
                 image_size=self.image_size
             )
-            self._print(f"\n[OK] Performance report saved to: {report_path}")
+            self._print_status(f"Performance report saved to: {report_path}")
         
         return output_files
+    
+    def run_alignment_only(self, output_path: Path,
+                          report_path: Optional[Path] = None) -> Dict:
+        """
+        Run alignment phases only - no image writing.
+        
+        This is much faster than run_full_pipeline() because it skips:
+        - Apply Transform phase (expensive tiled processing)
+        - Writing aligned OME-TIFF files
+        - Pyramid generation
+        
+        Instead, outputs a JSON file with transforms that can be applied
+        dynamically by viewers like napari.
+        
+        Parameters
+        ----------
+        output_path : Path
+            Path to save transforms.json file
+        report_path : Path, optional
+            Path to save JSON performance report
+            
+        Returns
+        -------
+        dict
+            The transforms data structure (same as what's written to JSON)
+        """
+        import json
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Record input file sizes
+        for cycle_file in self.cycle_files:
+            self.performance_monitor.record_input_file(str(cycle_file))
+        
+        self._print_header("Evos Registration Pipeline (Alignment-Only Mode)")
+        self._print_clean(f"Reference cycle: {self.reference_idx}")
+        self._print_clean(f"Total cycles: {len(self.cycle_files)}")
+        self._print_clean("Mode: Alignment-only (no image writing)")
+        print()
+        
+        # Phase 1: Coarse alignment
+        self.run_coarse_alignment()
+        print()
+        
+        # Phase 2: Fine registration (skip if coarse_only)
+        if not self.coarse_only:
+            for i in range(len(self.cycle_files)):
+                if i != self.reference_idx:
+                    self.run_fine_registration(i)
+                    print()
+        else:
+            self._print_clean("Phase 2: Fine Registration - SKIPPED (coarse-only mode)")
+            print()
+        
+        # Phase 3: Fit transforms
+        for i in range(len(self.cycle_files)):
+            self.fit_transform(i)
+            print()
+            
+            # Record accuracy metrics
+            coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0.0, 0.0]), 0.0))
+            fine_shifts = self.fine_shifts.get(i, [])
+            transform_result = self.transforms.get(i, {})
+            self.performance_monitor.record_accuracy(
+                i, coarse_shift, coarse_error, fine_shifts, transform_result
+            )
+        
+        # Phase 4: SKIP - no image writing in alignment-only mode
+        self._print_phase_start(4, "Apply Transform")
+        self._print_clean("  SKIPPED (alignment-only mode)")
+        self._print_clean("  Transforms will be saved to JSON for dynamic application")
+        print()
+        
+        # Build transforms output
+        result = self._build_transforms_json()
+        
+        # Save transforms.json
+        with open(output_path, 'w') as f:
+            json.dump(result, f, indent=2)
+        
+        # Finalize performance monitoring
+        self.performance_monitor.finalize()
+        
+        # Generate and print summary report
+        self._print_header("Alignment Complete!")
+        print()
+        
+        # Print timing summary
+        self._print_clean(f"Total time: {self.performance_monitor.metrics.elapsed_time():.2f} seconds")
+        self._print_clean(f"Transforms saved to: {output_path}")
+        print()
+        
+        # Print transform summary
+        self._print_clean("Detected transforms:")
+        for cycle in result['cycles']:
+            if cycle['index'] == self.reference_idx:
+                self._print_clean(f"  Cycle {cycle['index']}: Reference (identity)")
+            else:
+                shift = cycle.get('shift_yx', [0, 0])
+                error = cycle.get('error', 0)
+                self._print_clean(f"  Cycle {cycle['index']}: shift=({shift[0]:.2f}, {shift[1]:.2f}), error={error:.4f}")
+        print()
+        
+        # Save JSON report if requested
+        if report_path:
+            self.performance_monitor.generate_report(
+                str(report_path),
+                scale_factor=self.scale_factor,
+                image_size=self.image_size
+            )
+            self._print_status(f"Performance report saved to: {report_path}")
+        
+        return result
+    
+    def _build_transforms_json(self) -> Dict:
+        """
+        Build the transforms JSON structure for alignment-only output.
+        
+        Returns
+        -------
+        dict
+            Transforms data structure compatible with napari and other viewers
+        """
+        result = {
+            "version": "1.0",
+            "format": "ashlar_evos_transforms",
+            "reference_cycle": self.reference_idx,
+            "pixel_size_um": self.pixel_size,
+            "image_size": self.image_size,
+            "transform_type": self.transform_type,
+            "coarse_only": self.coarse_only,
+            "cycles": []
+        }
+        
+        for i, cycle_file in enumerate(self.cycle_files):
+            transform_data = self.transforms.get(i, {})
+            coarse_shift, coarse_error = self.coarse_shifts.get(i, (np.array([0, 0]), 0.0))
+            
+            # Get transform matrix
+            transform_matrix = transform_data.get('transform', np.eye(3))
+            if isinstance(transform_matrix, np.ndarray):
+                transform_matrix = transform_matrix.tolist()
+            
+            cycle_info = {
+                "index": i,
+                "file": str(cycle_file.absolute()),
+                "filename": cycle_file.name,
+                "transform": transform_matrix,
+                "transform_type": transform_data.get('transform_type', 'identity'),
+                "shift_yx": coarse_shift.tolist() if isinstance(coarse_shift, np.ndarray) else list(coarse_shift),
+                "error": float(coarse_error)
+            }
+            
+            # Add additional params if available (rotation, scale for similarity)
+            if 'params' in transform_data:
+                params = transform_data['params']
+                if len(params) >= 4:
+                    cycle_info["translation_xy"] = [float(params[0]), float(params[1])]
+                    cycle_info["rotation_rad"] = float(params[2])
+                    cycle_info["scale"] = float(params[3])
+            
+            # Add RMSE if available
+            if 'rmse' in transform_data:
+                cycle_info["rmse"] = float(transform_data['rmse'])
+            
+            result["cycles"].append(cycle_info)
+        
+        return result

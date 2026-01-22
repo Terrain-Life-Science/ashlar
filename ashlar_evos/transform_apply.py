@@ -5,6 +5,8 @@ Applies similarity or affine transforms to align target images to reference.
 """
 
 import numpy as np
+import tempfile
+import os
 from pathlib import Path
 from typing import Tuple, Optional, List
 from scipy import ndimage
@@ -196,9 +198,13 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
                                transform_matrix: np.ndarray,
                                level: int = 0,
                                order: int = 1,
-                               use_gpu: bool = False) -> np.ndarray:
+                               use_gpu: bool = False,
+                               tile_size: int = 4096,
+                               tile_overlap: int = 512) -> np.ndarray:
     """
     Apply transform to a single channel from an image.
+    
+    For large images, uses tiled processing to avoid OOM errors.
     
     Parameters
     ----------
@@ -212,24 +218,219 @@ def apply_transform_to_channel(reader: PyramidalOMETiffReader,
         Pyramid level to process (default: 0 = full resolution)
     order : int
         Interpolation order
+    use_gpu : bool
+        Use GPU acceleration if available
+    tile_size : int
+        Tile size for tiled processing (default: 4096)
+    tile_overlap : int
+        Tile overlap for tiled processing (default: 512)
         
     Returns
     -------
     np.ndarray
         Transformed channel image
     """
-    # Read channel (with optional memory mapping)
-    # Note: use_memmap parameter not yet added to function signature for backward compatibility
-    image = reader.get_channel(level, channel, use_memmap=False)
+    # Get image shape to determine if we need tiled processing
+    image_shape = reader.get_shape_at_level(level)
+    h, w = image_shape
+    image_area = h * w
     
-    # For transform, we need the actual array (convert zarr if needed)
-    if hasattr(image, '__array__'):
-        image = np.asarray(image)
+    # Use tiled processing for images larger than 50M pixels (roughly 7K×7K)
+    # This prevents OOM errors on large images like 16x scale (32K×32K)
+    use_tiled = image_area > 50_000_000
     
-    # Apply transform
-    transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
-    
-    return transformed
+    if use_tiled:
+        # Use tiled processing to avoid loading entire image into memory
+        from .tile_grid import TileGrid
+        
+        # Create tile grid
+        grid = TileGrid(image_shape, tile_size=tile_size, overlap=tile_overlap)
+        
+        # Determine if we need memory-mapped output array
+        use_memmap = image_area > 100_000_000  # 100M pixels threshold
+        
+        # Initialize output array
+        if use_memmap:
+            import tempfile
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+            temp_file.close()
+            transformed = np.memmap(
+                temp_file.name,
+                dtype=np.float32,
+                mode='w+',
+                shape=(h, w)
+            )
+            transformed[:] = 0.0
+            temp_file_path = temp_file.name
+        else:
+            transformed = np.zeros((h, w), dtype=np.float32)
+            temp_file_path = None
+        
+        # Initialize weight map for blending
+        if use_memmap:
+            temp_file_weight = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+            temp_file_weight.close()
+            weight_map = np.memmap(
+                temp_file_weight.name,
+                dtype=np.float32,
+                mode='w+',
+                shape=(h, w)
+            )
+            weight_map[:] = 0.0
+            temp_file_weight_path = temp_file_weight.name
+        else:
+            weight_map = np.zeros((h, w), dtype=np.float32)
+            temp_file_weight_path = None
+        
+        try:
+            # Process each tile
+            for tile_info in grid:
+                # Apply transform to tile
+                transformed_tile = apply_transform_to_tile(
+                    reader, channel, tile_info, transform_matrix,
+                    level=level, order=order, use_gpu=use_gpu
+                )
+                
+                # Create weight map for this tile (feather edges for smooth blending)
+                y0, x0 = tile_info.y, tile_info.x
+                th, tw = transformed_tile.shape
+                
+                # Create weight map: 1.0 in center, feathering to 0.5 at edges
+                tile_weight = np.ones((th, tw), dtype=np.float32)
+                feather_size = min(tile_overlap // 2, min(th, tw) // 4)
+                
+                if feather_size > 0:
+                    # Feather edges
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+                        tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                        tile_weight[:, i] = np.minimum(tile_weight[:, i], weight)
+                        tile_weight[:, tw - 1 - i] = np.minimum(tile_weight[:, tw - 1 - i], weight)
+                
+                # Accumulate weighted tile values
+                transformed[y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float32) * tile_weight
+                weight_map[y0:y0+th, x0:x0+tw] += tile_weight
+            
+            # Normalize by weight map to get final blended result
+            mask = weight_map > 0
+            transformed[mask] /= weight_map[mask]
+            transformed[~mask] = 0
+            
+            # Convert to uint16
+            if use_memmap:
+                # Convert in chunks to avoid OOM
+                chunk_rows = 1024
+                result = np.zeros((h, w), dtype=np.uint16)
+                for row_start in range(0, h, chunk_rows):
+                    row_end = min(row_start + chunk_rows, h)
+                    chunk = transformed[row_start:row_end, :]
+                    result[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
+                
+                # Clean up temp files - must close memmap arrays first on Windows
+                import os
+                import sys
+                import time
+                
+                # Flush and close memmap arrays before deletion
+                # This ensures file handles are released on Windows
+                if hasattr(transformed, 'flush'):
+                    transformed.flush()
+                if hasattr(weight_map, 'flush'):
+                    weight_map.flush()
+                
+                # Delete references to memmap arrays
+                del transformed
+                del weight_map
+                
+                # Force garbage collection to release file handles
+                import gc
+                gc.collect()
+                
+                # On Windows, files may still be locked briefly, so retry with delay
+                if sys.platform == 'win32':
+                    time.sleep(0.2)  # Longer delay for Windows file handle release
+                
+                # Try to delete temp files with retry logic for Windows
+                max_retries = 5  # More retries for Windows
+                for retry in range(max_retries):
+                    try:
+                        if temp_file_path and os.path.exists(temp_file_path):
+                            os.unlink(temp_file_path)
+                        if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                            os.unlink(temp_file_weight_path)
+                        break  # Success, exit retry loop
+                    except (PermissionError, OSError) as e:
+                        if retry < max_retries - 1:
+                            time.sleep(0.3)  # Wait longer before retry
+                            gc.collect()  # Force another GC pass
+                        else:
+                            # Last retry failed - suppress warning on Windows as files will be cleaned up
+                            # This is a known Windows issue with temp file cleanup
+                            if sys.platform != 'win32':
+                                import warnings
+                                warnings.warn(
+                                    f"Could not delete temporary file(s): {e}\n"
+                                    f"  Files will be cleaned up automatically by the OS.",
+                                    UserWarning
+                                )
+                
+                return result
+            else:
+                return np.clip(transformed, 0, 65535).astype(np.uint16)
+        
+        except Exception:
+            # Clean up temp files on error
+            import os
+            import sys
+            import time
+            import gc
+            
+            # Flush and close memmap arrays first
+            try:
+                if 'transformed' in locals() and hasattr(transformed, 'flush'):
+                    transformed.flush()
+                if 'weight_map' in locals() and hasattr(weight_map, 'flush'):
+                    weight_map.flush()
+                if 'transformed' in locals():
+                    del transformed
+                if 'weight_map' in locals():
+                    del weight_map
+                gc.collect()
+                if sys.platform == 'win32':
+                    time.sleep(0.2)  # Longer delay for Windows
+            except Exception:
+                pass
+            
+            # Try to delete temp files with retry logic
+            max_retries = 5  # More retries for Windows
+            for retry in range(max_retries):
+                try:
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
+                    if temp_file_weight_path and os.path.exists(temp_file_weight_path):
+                        os.unlink(temp_file_weight_path)
+                    break
+                except (PermissionError, OSError):
+                    if retry < max_retries - 1:
+                        time.sleep(0.3)  # Wait longer before retry
+                        gc.collect()
+                    # On last retry, just ignore the error (files will be cleaned up by OS)
+                    pass
+            raise
+    else:
+        # For smaller images, use the original approach
+        # Read channel (with optional memory mapping)
+        image = reader.get_channel(level, channel, use_memmap=False)
+        
+        # For transform, we need the actual array (convert zarr if needed)
+        if hasattr(image, '__array__'):
+            image = np.asarray(image)
+        
+        # Apply transform
+        transformed = apply_transform_to_image(image, transform_matrix, order=order, use_gpu=use_gpu)
+        
+        return transformed
 
 
 def apply_transform_to_all_channels(reader: PyramidalOMETiffReader,
@@ -428,6 +629,7 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     Apply transform to all channels using tiled processing.
     
     Processes image in tiles to avoid loading entire image into memory.
+    Uses memory-mapped arrays for large images to prevent OOM errors.
     Returns transformed channels as a list.
     
     Parameters
@@ -457,66 +659,175 @@ def apply_transform_tiled(reader: PyramidalOMETiffReader,
     # Create tile grid
     grid = TileGrid(image_shape, tile_size=tile_size, overlap=tile_overlap)
     num_channels = reader.get_num_channels()
+    h, w = image_shape
+    
+    # Determine if we need memory-mapped arrays (for large images)
+    # Lower threshold to 50M pixels to be more conservative and catch 8x images earlier
+    # 8x images: 16384×16384 = 268M pixels (will use memmap)
+    # 16x images: 32768×32768 = 1.07B pixels (will use memmap)
+    image_area = h * w
+    # Use memmap for images > 50M pixels (roughly 7K×7K or larger)
+    # This ensures 8x and 16x images always use memmap
+    use_memmap = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
     
     # Initialize output channels and weight maps for blending
-    h, w = image_shape
-    transformed_channels = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
-    weight_maps = [np.zeros((h, w), dtype=np.float64) for _ in range(num_channels)]
+    # Use memory-mapped arrays for large images to avoid OOM
+    temp_files = []
+    uint16_memmap_files = []  # Track uint16 memmap files separately (they're returned to caller)
+    transformed_channels = []
+    weight_maps = []
     
-    # Process each channel
-    for channel_idx in range(num_channels):
-        # Process each tile
-        for tile_info in grid:
-            # Apply transform to tile
-            transformed_tile = apply_transform_to_tile(
-                reader, channel_idx, tile_info, transform_matrix,
-                level=level, order=order, use_gpu=use_gpu
-            )
-            
-            # Create weight map for this tile (feather edges for smooth blending)
-            y0, x0 = tile_info.y, tile_info.x
-            th, tw = transformed_tile.shape
-            
-            # Create weight map: 1.0 in center, feathering to 0.5 at edges
-            # This ensures smooth blending in overlap regions
-            tile_weight = np.ones((th, tw), dtype=np.float64)
-            feather_size = min(tile_overlap // 2, min(th, tw) // 4)
-            
-            if feather_size > 0:
-                # Feather top edge
-                for i in range(feather_size):
-                    weight = 0.5 + 0.5 * (i + 1) / feather_size
-                    tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+    try:
+        if use_memmap:
+            # Create temporary files for memory-mapped arrays
+            for ch_idx in range(num_channels):
+                # Create temp file for transformed channel
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_files.append(temp_file.name)
+                temp_file.close()
                 
-                # Feather bottom edge
-                for i in range(feather_size):
-                    weight = 0.5 + 0.5 * (i + 1) / feather_size
-                    tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                # Create memory-mapped array
+                transformed_ch = np.memmap(
+                    temp_file.name,
+                    dtype=np.float32,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                transformed_ch[:] = 0.0
+                transformed_channels.append(transformed_ch)
                 
-                # Feather left edge
-                for j in range(feather_size):
-                    weight = 0.5 + 0.5 * (j + 1) / feather_size
-                    tile_weight[:, j] = np.minimum(tile_weight[:, j], weight)
+                # Create temp file for weight map
+                temp_file_weight = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                temp_files.append(temp_file_weight.name)
+                temp_file_weight.close()
                 
-                # Feather right edge
-                for j in range(feather_size):
-                    weight = 0.5 + 0.5 * (j + 1) / feather_size
-                    tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
-            
-            # Accumulate weighted tile values
-            transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float64) * tile_weight
-            weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
+                # Create memory-mapped array for weight map
+                weight_map = np.memmap(
+                    temp_file_weight.name,
+                    dtype=np.float32,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                weight_map[:] = 0.0
+                weight_maps.append(weight_map)
+        else:
+            # For smaller images, use regular arrays
+            transformed_channels = [np.zeros((h, w), dtype=np.float32) for _ in range(num_channels)]
+            weight_maps = [np.zeros((h, w), dtype=np.float32) for _ in range(num_channels)]
         
-        # Normalize by weight map to get final blended result
-        # Avoid division by zero
-        weight_map = weight_maps[channel_idx]
-        mask = weight_map > 0
-        transformed_channels[channel_idx][mask] /= weight_map[mask]
-        transformed_channels[channel_idx][~mask] = 0
+        # Process each channel
+        for channel_idx in range(num_channels):
+            # Process each tile
+            for tile_info in grid:
+                # Apply transform to tile
+                transformed_tile = apply_transform_to_tile(
+                    reader, channel_idx, tile_info, transform_matrix,
+                    level=level, order=order, use_gpu=use_gpu
+                )
+                
+                # Create weight map for this tile (feather edges for smooth blending)
+                y0, x0 = tile_info.y, tile_info.x
+                th, tw = transformed_tile.shape
+                
+                # Create weight map: 1.0 in center, feathering to 0.5 at edges
+                # This ensures smooth blending in overlap regions
+                tile_weight = np.ones((th, tw), dtype=np.float32)
+                feather_size = min(tile_overlap // 2, min(th, tw) // 4)
+                
+                if feather_size > 0:
+                    # Feather top edge
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[i, :] = np.minimum(tile_weight[i, :], weight)
+                    
+                    # Feather bottom edge
+                    for i in range(feather_size):
+                        weight = 0.5 + 0.5 * (i + 1) / feather_size
+                        tile_weight[th - 1 - i, :] = np.minimum(tile_weight[th - 1 - i, :], weight)
+                    
+                    # Feather left edge
+                    for j in range(feather_size):
+                        weight = 0.5 + 0.5 * (j + 1) / feather_size
+                        tile_weight[:, j] = np.minimum(tile_weight[:, j], weight)
+                    
+                    # Feather right edge
+                    for j in range(feather_size):
+                        weight = 0.5 + 0.5 * (j + 1) / feather_size
+                        tile_weight[:, tw - 1 - j] = np.minimum(tile_weight[:, tw - 1 - j], weight)
+                
+                # Accumulate weighted tile values
+                transformed_channels[channel_idx][y0:y0+th, x0:x0+tw] += transformed_tile.astype(np.float32) * tile_weight
+                weight_maps[channel_idx][y0:y0+th, x0:x0+tw] += tile_weight
+            
+            # Normalize by weight map to get final blended result
+            # Avoid division by zero
+            weight_map = weight_maps[channel_idx]
+            mask = weight_map > 0
+            transformed_channels[channel_idx][mask] /= weight_map[mask]
+            transformed_channels[channel_idx][~mask] = 0
+            
+            # Convert back to uint16
+            # For memmap arrays, convert in chunks to avoid OOM
+            if use_memmap:
+                # Create new uint16 memmap file for this channel
+                temp_file_uint16 = tempfile.NamedTemporaryFile(delete=False, suffix='.dat')
+                uint16_file_path = temp_file_uint16.name
+                uint16_memmap_files.append(uint16_file_path)  # Track for cleanup
+                temp_files.append(uint16_file_path)
+                temp_file_uint16.close()
+                
+                # Create uint16 memmap array
+                transformed_uint16 = np.memmap(
+                    uint16_file_path,
+                    dtype=np.uint16,
+                    mode='w+',
+                    shape=(h, w)
+                )
+                
+                # Convert float32 memmap to uint16 memmap in chunks to avoid OOM
+                # Process in row chunks to minimize memory usage
+                chunk_rows = 1024  # Process 1024 rows at a time
+                for row_start in range(0, h, chunk_rows):
+                    row_end = min(row_start + chunk_rows, h)
+                    chunk = transformed_channels[channel_idx][row_start:row_end, :]
+                    transformed_uint16[row_start:row_end, :] = np.clip(chunk, 0, 65535).astype(np.uint16)
+                
+                # Replace float32 memmap with uint16 memmap
+                transformed_channels[channel_idx] = transformed_uint16
+            else:
+                transformed_channels[channel_idx] = np.clip(
+                    transformed_channels[channel_idx], 0, 65535
+                ).astype(np.uint16)
         
-        # Convert back to uint16
-        transformed_channels[channel_idx] = np.clip(
-            transformed_channels[channel_idx], 0, 65535
-        ).astype(np.uint16)
+        # For memmap arrays, return them as-is (already uint16 memmaps)
+        # Writer must handle them carefully to avoid loading all into memory
+        if use_memmap:
+            # Return memmap arrays directly - writer will handle them efficiently
+            # Clean up intermediate files (float32 channels and weight maps) but keep uint16 files
+            # The uint16 files are still needed by the returned memmap arrays
+            intermediate_files = [f for f in temp_files if f not in uint16_memmap_files]
+            for temp_file in intermediate_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass  # Ignore cleanup errors
+            
+            result = transformed_channels  # Already uint16 memmaps
+        else:
+            result = transformed_channels
+        
+        return result
     
-    return transformed_channels
+    finally:
+        # Only clean up if we're not returning memmap arrays
+        # When returning memmap arrays, we keep the uint16 files (cleaned up above)
+        # The uint16 memmap files will be cleaned up by the OS when the process exits,
+        # or can be explicitly cleaned up by the writer after use
+        if not use_memmap:
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception:
+                    pass  # Ignore cleanup errors

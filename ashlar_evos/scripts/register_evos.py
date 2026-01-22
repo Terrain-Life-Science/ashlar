@@ -19,8 +19,11 @@ def main(argv=None):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Register cycles with default settings
+  # Register cycles with default settings (writes aligned images)
   register_evos cycle_00.ome.tif cycle_01.ome.tif cycle_02.ome.tif --output-dir aligned
+  
+  # FAST: Alignment-only mode (outputs transforms.json, no image writing)
+  register_evos cycle_*.ome.tif --alignment-only --output-dir aligned
   
   # Use specific reference cycle
   register_evos cycle_*.ome.tif --reference 0 --output-dir aligned
@@ -30,6 +33,9 @@ Examples:
   
   # Custom tile size and workers
   register_evos cycle_*.ome.tif --tile-size 2048 --num-workers 8 --output-dir aligned
+  
+  # Combine coarse-only with alignment-only for fastest possible alignment
+  register_evos cycle_*.ome.tif --coarse-only --alignment-only --output-dir aligned
         """
     )
     
@@ -123,6 +129,14 @@ Examples:
     )
     
     parser.add_argument(
+        '--alignment-only',
+        action='store_true',
+        help='Output only alignment transforms (JSON), skip writing aligned images. '
+             'This is much faster and uses minimal memory. Use with a viewer like napari '
+             'to apply transforms dynamically.'
+    )
+    
+    parser.add_argument(
         '--cloud',
         action='store_true',
         help='Enable cloud optimizations (adaptive pyramid level, optimized workers)'
@@ -136,8 +150,13 @@ Examples:
     
     args = parser.parse_args(argv)
     
-    # Set up logging
-    log_file = args.output_dir / 'registration.log' if args.output_dir else None
+    # Set up logging - organize logs into logs/ subdirectory
+    if args.output_dir:
+        logs_dir = args.output_dir / 'logs'
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        log_file = logs_dir / 'registration.log'
+    else:
+        log_file = None
     logger = setup_logging(
         log_level='DEBUG' if not args.quiet else 'WARNING',
         log_file=log_file,
@@ -262,17 +281,37 @@ Examples:
             reports_dir.mkdir(parents=True, exist_ok=True)
             report_path = reports_dir / 'report.json'
         
-        output_files = pipeline.run_full_pipeline(
-            args.output_dir,
-            report_path=report_path
-        )
-        
-        logger.info("")
-        logger.info("Output files:")
-        for i, output_file in output_files.items():
-            logger.info(f"  Cycle {i}: {output_file}")
-        
-        return 0
+        # Check for alignment-only mode
+        if args.alignment_only:
+            # Run alignment-only mode - output transforms.json, skip image writing
+            transforms_path = args.output_dir / 'transforms.json'
+            result = pipeline.run_alignment_only(
+                output_path=transforms_path,
+                report_path=report_path
+            )
+            
+            logger.info("")
+            logger.info("Alignment-only mode completed!")
+            logger.info(f"  Transforms saved to: {transforms_path}")
+            logger.info(f"  Cycles aligned: {len(result['cycles'])}")
+            logger.info("")
+            logger.info("To visualize with napari:")
+            logger.info(f"  napari-apply-transforms {transforms_path}")
+            
+            return 0
+        else:
+            # Run full pipeline with image writing
+            output_files = pipeline.run_full_pipeline(
+                args.output_dir,
+                report_path=report_path
+            )
+            
+            logger.info("")
+            logger.info("Output files:")
+            for i, output_file in output_files.items():
+                logger.info(f"  Cycle {i}: {output_file}")
+            
+            return 0
     except Exception as e:
         logger.error(f"Registration failed: {e}", exc_info=True)
         return 1
