@@ -1,0 +1,73 @@
+Quick Command Reference
+
+1. Generating Synthetic Images
+
+Single Scale Images
+# Basic (2048×2048, default)python -m ashlar.scripts.generate_synthetic_test_images# Custom sizepython -m ashlar.scripts.generate_synthetic_test_images --size 4096 4096# Custom output directorypython -m ashlar.scripts.generate_synthetic_test_images --output-dir ./test_data# Custom pixel sizepython -m ashlar.scripts.generate_synthetic_test_images --pixel-size 0.5# More pyramid levelspython -m ashlar.scripts.generate_synthetic_test_images --pyramid-levels 5
+Flags:
+--output-dir, -o: Output directory (default: synthetic_test_images)
+--size HEIGHT WIDTH: Image size in pixels (default: 2048 2048)
+--pixel-size: Pixel size in micrometers (default: 0.325)
+--pyramid-levels: Number of pyramid levels (default: 4)
+Multi-Scale Images (1x, 2x, 4x, 8x, 16x)
+# Generate all scalespython -m ashlar.scripts.generate_multi_scale_test_images# Custom base directorypython -m ashlar.scripts.generate_multi_scale_test_images --base-dir ./test_data# Custom pixel sizepython -m ashlar.scripts.generate_multi_scale_test_images --pixel-size 0.5# Custom pyramid levelspython -m ashlar.scripts.generate_multi_scale_test_images --pyramid-levels 5
+Flags:
+--base-dir, -b: Base output directory (default: .)
+--pixel-size, -p: Pixel size in micrometers (default: 0.325)
+--pyramid-levels, -l: Number of pyramid levels (default: 4)
+
+2. Registering Images
+
+Multi-Scale Registration (Recommended)
+# Basic phase correlation modepython -m ashlar_evos.scripts.register_multi_scale `    --base-input-dir . `    --base-output-dir test_output `    --max-scale 2.0# Centroid mode (watershed - no dependencies)python -m ashlar_evos.scripts.register_multi_scale `    --base-input-dir . `    --base-output-dir test_output `    --max-scale 2.0 `    --coarse-mode centroid `    --centroid-segmentation watershed `    --centroid-level 2 `    --coarse-only `    --alignment-only# Centroid mode (StarDist - requires pip install stardist csbdeep)python -m ashlar_evos.scripts.register_multi_scale `    --base-input-dir . `    --base-output-dir test_output `    --max-scale 2.0 `    --coarse-mode centroid `    --centroid-segmentation stardist `    --centroid-level 2 `    --coarse-only `    --alignment-only
+Common Flags:
+--base-input-dir, -i: Base directory with synthetic_test_images/ subdirectories
+--base-output-dir, -o: Base directory for outputs
+--max-scale: Maximum scale to process (1.0, 2.0, 4.0, 8.0, 16.0)
+--report, -R: Path to save JSON report (default: reports/report_multi_scale.json)
+--pixel-size, -p: Pixel size in micrometers (default: 0.325)
+--coarse-level, -c: Pyramid level for coarse alignment (default: 3)
+--tile-size, -t: Tile size for fine registration (default: 4096)
+--tile-overlap, -l: Overlap between tiles (default: 512)
+--transform-type: Transform type: similarity or affine (default: similarity)
+--num-workers, -w: Number of parallel workers (default: CPU cores)
+--quiet, -q: Suppress progress messages
+--coarse-only: Skip fine registration (faster)
+--alignment-only: Output only transforms.json, skip writing images (fastest)
+Centroid Mode Flags:
+--coarse-mode: phase_correlation (default) or centroid
+--centroid-level: Pyramid level for centroid registration (default: auto)
+--centroid-segmentation: stardist (default) or watershed
+--centroid-max-iter: Maximum ICP iterations (default: 100)
+--centroid-threshold: Distance threshold for ICP matching in pixels (default: 10.0)
+--centroid-min-matches: Minimum centroid matches required (default: 20)
+Single Dataset Registration
+# Basic registrationregister_evos cycle_*.ome.tif --output-dir aligned/# With reportregister_evos cycle_*.ome.tif --output-dir aligned/ --report report.json# Alignment-only (transforms.json only)register_evos cycle_*.ome.tif --output-dir aligned/ --alignment-only# Coarse-only moderegister_evos cycle_*.ome.tif --output-dir aligned/ --coarse-only
+
+3. Visualizing Results (JSON Reports)
+
+PowerShell Quick View
+# Pretty-print JSONGet-Content test_output/reports/centroid.json | ConvertFrom-Json | ConvertTo-Json -Depth 10# View summary$report = Get-Content test_output/reports/centroid.json | ConvertFrom-Json$report.summary# View shifts per cycle$report.accuracy_by_cycle | ForEach-Object {     Write-Host "Cycle $($_.cycle_idx): shift=($($_.coarse_shift.y), $($_.coarse_shift.x)), error=$($_.coarse_error), rmse=$($_.rmse)" }
+Python Quick View
+# View key metricspython -c "import json; data = json.load(open('test_output/reports/centroid.json')); print('Summary:'); print(f\"  Total time: {data['summary']['total_time_formatted']}\"); print(f\"  Average RMSE: {data['summary']['average_rmse']:.4f} px\"); print('\nPer Cycle:'); [print(f\"  Cycle {c['cycle_idx']}: shift=({c['coarse_shift']['y']:.2f}, {c['coarse_shift']['x']:.2f}), error={c['coarse_error']:.4f}, rmse={c['rmse']:.4f}\") for c in data['accuracy_by_cycle']]"
+Web Visualization App
+# Copy report to visualization directory Copy-Item test_output/reports/centroid.json visualization/public/report.json
+# Start web appcd visualization npm run dev
+# Then open http://localhost:3000 in browser
+
+4. Visualizing Aligned Images (Napari)
+
+Basic Visualization
+# Basic (uses pyramid level 3 for fast loading)python -m ashlar_evos.scripts.visualize_transforms test_output/aligned_output_2x/transforms.json# Higher resolution (slower)python -m ashlar_evos.scripts.visualize_transforms test_output/aligned_output_2x/transforms.json --level 2# Specific channelpython -m ashlar_evos.scripts.visualize_transforms test_output/aligned_output_2x/transforms.json --channel 1# Checkerboard mode (better alignment verification)python -m ashlar_evos.scripts.visualize_transforms test_output/aligned_output_2x/transforms.json --checkerboard
+Flags:
+transforms: Path to transforms.json file (required)
+--level, -l: Pyramid level for visualization (default: 3, higher = faster but lower res)
+--channel, -c: Channel index to display (default: 0 for DAPI)
+--checkerboard: Use red/green/blue checkerboard coloring
+Note: Requires transforms.json file (generated with --alignment-only flag)
+Common Workflows
+Quick Test Workflow
+# 1. Generate test images (2x scale)python -m ashlar.scripts.generate_synthetic_test_images --output-dir synthetic_test_images/2x --size 4096 4096# 2. Register with centroid modepython -m ashlar_evos.scripts.register_multi_scale `    --base-input-dir . `    --base-output-dir test_output `    --max-scale 2.0 `    --coarse-mode centroid `    --centroid-segmentation watershed `    --centroid-level 2 `    --coarse-only `    --alignment-only `    --report test_output/reports/centroid.json# 3. Visualize in naparipython -m ashlar_evos.scripts.visualize_transforms test_output/aligned_output_2x/transforms.json
+Full Pipeline Workflow
+# 1. Generate all scalespython -m ashlar.scripts.generate_multi_scale_test_images# 2. Register all scalespython -m ashlar_evos.scripts.register_multi_scale `    --base-input-dir . `    --base-output-dir test_output `    --max-scale 16.0 `    --coarse-mode centroid `    --centroid-segmentation watershed `    --coarse-only `    --alignment-only `    --report test_output/reports/multi_scale.json# 3. View reportGet-Content test_output/reports/multi_scale.json | ConvertFrom-Json | ConvertTo-Json -Depth 10
+
