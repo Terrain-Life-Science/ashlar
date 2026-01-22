@@ -104,6 +104,12 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=requires,
+    extras_require={
+        'centroid': [
+            'stardist>=0.8.0',
+            'csbdeep>=0.7.0',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'ashlar=ashlar.scripts.ashlar:main',

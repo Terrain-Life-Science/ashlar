@@ -61,7 +61,9 @@ def run_registration_for_scale(
     num_workers: Optional[int] = None,
     verbose: bool = True,
     coarse_only: bool = False,
-    alignment_only: bool = False
+    alignment_only: bool = False,
+    coarse_mode: str = 'phase_correlation',
+    centroid_config: Optional[Dict] = None
 ) -> Dict:
     """
     Run registration pipeline for a single scale.
@@ -94,6 +96,10 @@ def run_registration_for_scale(
         Skip fine registration
     alignment_only : bool
         Output only alignment transforms (JSON), skip writing aligned images
+    coarse_mode : str
+        Coarse alignment mode: "phase_correlation" or "centroid"
+    centroid_config : dict, optional
+        Configuration for centroid-based alignment
         
     Returns
     -------
@@ -153,7 +159,9 @@ def run_registration_for_scale(
         verbose=verbose,
         coarse_only=coarse_only,
         scale_factor=scale_factor,
-        image_size=image_size
+        image_size=image_size,
+        coarse_mode=coarse_mode,
+        centroid_config=centroid_config
     )
     
     # Run pipeline
@@ -209,7 +217,9 @@ def generate_multi_scale_report(
     verbose: bool = True,
     coarse_only: bool = False,
     alignment_only: bool = False,
-    max_scale: float = 16.0
+    max_scale: float = 16.0,
+    coarse_mode: str = 'phase_correlation',
+    centroid_config: Optional[Dict] = None
 ) -> Dict:
     """
     Run registration on all scales (1x, 2x, 4x, 8x, 16x) and generate combined report.
@@ -303,7 +313,9 @@ def generate_multi_scale_report(
                 num_workers=num_workers,
                 verbose=verbose,
                 coarse_only=coarse_only,
-                alignment_only=alignment_only
+                alignment_only=alignment_only,
+                coarse_mode=coarse_mode,
+                centroid_config=centroid_config
             )
             runs.append(report)
         except Exception as e:
@@ -447,7 +459,64 @@ Examples:
              'to apply transforms dynamically.'
     )
     
+    parser.add_argument(
+        '--coarse-mode',
+        choices=['phase_correlation', 'centroid'],
+        default='phase_correlation',
+        help='Coarse alignment mode: phase_correlation (default) or centroid (DAPI-based nuclei registration)'
+    )
+    
+    parser.add_argument(
+        '--centroid-level',
+        type=int,
+        default=None,
+        help='Pyramid level for centroid-based registration (default: auto-configured based on image size)'
+    )
+    
+    parser.add_argument(
+        '--centroid-segmentation',
+        choices=['stardist', 'watershed'],
+        default='stardist',
+        help='Segmentation method for centroid registration: stardist (default) or watershed'
+    )
+    
+    parser.add_argument(
+        '--centroid-max-iter',
+        type=int,
+        default=100,
+        help='Maximum ICP iterations for centroid registration (default: 100)'
+    )
+    
+    parser.add_argument(
+        '--centroid-threshold',
+        type=float,
+        default=10.0,
+        help='Distance threshold for ICP matching in pixels (default: 10.0)'
+    )
+    
+    parser.add_argument(
+        '--centroid-min-matches',
+        type=int,
+        default=20,
+        help='Minimum number of centroid matches required (default: 20)'
+    )
+    
     args = parser.parse_args(argv)
+    
+    # Build centroid_config from CLI arguments if centroid mode is selected
+    centroid_config = None
+    if args.coarse_mode == 'centroid':
+        centroid_config = {
+            'segmentation_method': args.centroid_segmentation,
+            'icp_params': {
+                'max_iterations': args.centroid_max_iter,
+                'distance_threshold': args.centroid_threshold,
+                'min_matches': args.centroid_min_matches,
+                'convergence_threshold': 0.01
+            }
+        }
+        if args.centroid_level is not None:
+            centroid_config['level'] = args.centroid_level
     
     # Set up logging - organize logs into logs/ subdirectory
     if args.base_output_dir:
@@ -486,7 +555,9 @@ Examples:
             verbose=not args.quiet,
             coarse_only=args.coarse_only,
             alignment_only=args.alignment_only,
-            max_scale=args.max_scale
+            max_scale=args.max_scale,
+            coarse_mode=args.coarse_mode,
+            centroid_config=centroid_config
         )
         
         # Save combined report

@@ -9,7 +9,7 @@ import numpy as np
 import json
 import pickle
 from pathlib import Path
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 from dataclasses import dataclass, asdict
 from .reader import PyramidalOMETiffReader
 from .metadata import OMEMetadata
@@ -179,7 +179,9 @@ class EvosRegistrationPipeline:
                  image_size: Optional[Dict[str, int]] = None,
                  skip_incompatible_cycles: bool = False,
                  max_shift_threshold: float = 1000.0,
-                 check_memory: bool = True):
+                 check_memory: bool = True,
+                 coarse_mode: str = "phase_correlation",
+                 centroid_config: Optional[Dict[str, Any]] = None):
         """
         Initialize registration pipeline.
         
@@ -208,6 +210,21 @@ class EvosRegistrationPipeline:
         coarse_only : bool
             If True, skip fine registration and use only coarse alignment
             (default: False)
+        scale_factor : float, optional
+            Scale factor for multi-scale analysis (default: None)
+        image_size : dict, optional
+            Dictionary with 'width' and 'height' keys (default: None)
+        skip_incompatible_cycles : bool
+            If True, skip cycles with incompatible dimensions (default: False)
+        max_shift_threshold : float
+            Maximum acceptable shift magnitude in pixels (default: 1000.0)
+        check_memory : bool
+            If True, check memory usage and warn if excessive (default: True)
+        coarse_mode : str
+            Coarse alignment mode: "phase_correlation" or "centroid" (default: "phase_correlation")
+        centroid_config : dict, optional
+            Configuration for centroid-based alignment (default: None)
+            Keys: level, segmentation_method, icp_params
         """
         self.cycle_files = [Path(f) for f in cycle_files]
         self.reference_idx = reference_idx
@@ -225,6 +242,31 @@ class EvosRegistrationPipeline:
         self.skip_incompatible_cycles = skip_incompatible_cycles
         self.max_shift_threshold = max_shift_threshold
         self.check_memory = check_memory
+        self.coarse_mode = coarse_mode
+        self.centroid_config = centroid_config
+        
+        # Auto-configure centroid_config for large images if not provided
+        if self.coarse_mode == "centroid" and self.centroid_config is None:
+            self.centroid_config = {}
+            if image_size is not None:
+                image_dimension = max(image_size.get('width', 0), image_size.get('height', 0))
+                # Use higher pyramid level for larger images to reduce memory
+                if image_dimension >= 32768:  # 16x images
+                    self.centroid_config['level'] = 3
+                elif image_dimension >= 16384:  # 8x images
+                    self.centroid_config['level'] = 2
+                else:
+                    self.centroid_config['level'] = 2
+            else:
+                self.centroid_config['level'] = 2
+            
+            self.centroid_config['segmentation_method'] = 'stardist'
+            self.centroid_config['icp_params'] = {
+                'max_iterations': 100,
+                'distance_threshold': 10.0,
+                'min_matches': 20,
+                'convergence_threshold': 0.01
+            }
         
         # Results storage
         self.coarse_shifts = {}
@@ -993,7 +1035,9 @@ class EvosRegistrationPipeline:
                 reference_idx=self.reference_idx,
                 pyramid_level=pyramid_level,
                 dapi_channel=self.dapi_channel,
-                upsample=upsample
+                upsample=upsample,
+                coarse_mode=self.coarse_mode,
+                centroid_config=self.centroid_config
             )
             
             self._print_clean(f"  Reference cycle: {self.reference_idx}")

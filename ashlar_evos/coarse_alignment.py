@@ -6,7 +6,7 @@ Implements fast initial alignment using downsampled pyramid levels.
 
 import numpy as np
 from pathlib import Path
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 from .reader import PyramidalOMETiffReader
 from .metadata import OMEMetadata
 
@@ -253,11 +253,140 @@ def coarse_align_cycle(reference_file: Path, target_file: Path,
     return shift_full_res, error
 
 
+def coarse_align_two_cycles_centroid(ref_reader: PyramidalOMETiffReader,
+                                    target_reader: PyramidalOMETiffReader,
+                                    dapi_channel: int = 0,
+                                    level: int = 2,
+                                    segmentation_method: str = "stardist",
+                                    icp_params: Optional[Dict] = None) -> Tuple[np.ndarray, float]:
+    """
+    Coarse align two cycles using centroid-based registration.
+    
+    Parameters
+    ----------
+    ref_reader : PyramidalOMETiffReader
+        Reader for reference cycle
+    target_reader : PyramidalOMETiffReader
+        Reader for target cycle
+    dapi_channel : int
+        Channel index for DAPI (default: 0)
+    level : int
+        Pyramid level to use (default: 2)
+    segmentation_method : str
+        Segmentation method: "stardist" or "watershed" (default: "stardist")
+    icp_params : dict, optional
+        ICP parameters (default: None = use defaults)
+        
+    Returns
+    -------
+    tuple
+        (shift, error) where shift is (dy, dx) in pixels at full resolution
+    """
+    from .centroid_registration import estimate_shift_from_centroids
+    
+    # Read DAPI channels at chosen pyramid level
+    ref_dapi = ref_reader.get_channel(level, dapi_channel, use_memmap=False)
+    target_dapi = target_reader.get_channel(level, dapi_channel, use_memmap=False)
+    
+    # Convert to numpy if needed (zarr arrays)
+    if hasattr(ref_dapi, 'compute'):
+        ref_dapi = np.array(ref_dapi)
+    if hasattr(target_dapi, 'compute'):
+        target_dapi = np.array(target_dapi)
+    
+    # Estimate shift using centroids
+    shift, error, metadata = estimate_shift_from_centroids(
+        ref_dapi,
+        target_dapi,
+        level=level,
+        segmentation_method=segmentation_method,
+        icp_params=icp_params
+    )
+    
+    return shift, error
+
+
+def coarse_align_all_cycles_centroid(cycle_files: List[Path],
+                                    reference_idx: int = 0,
+                                    dapi_channel: int = 0,
+                                    level: int = 2,
+                                    segmentation_method: str = "stardist",
+                                    icp_params: Optional[Dict] = None) -> Dict[int, Tuple[np.ndarray, float]]:
+    """
+    Coarse align all cycles using centroid-based registration.
+    
+    Parameters
+    ----------
+    cycle_files : List[Path]
+        List of cycle file paths
+    reference_idx : int
+        Index of reference cycle (default: 0)
+    dapi_channel : int
+        Channel index for DAPI (default: 0)
+    level : int
+        Pyramid level to use (default: 2)
+    segmentation_method : str
+        Segmentation method: "stardist" or "watershed" (default: "stardist")
+    icp_params : dict, optional
+        ICP parameters (default: None = use defaults)
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping cycle index to (shift, error) tuple
+        Shift is (dy, dx) in pixels at full resolution
+    """
+    if reference_idx >= len(cycle_files):
+        raise ValueError(f"Reference index {reference_idx} out of range")
+    
+    shifts = {}
+    
+    # Reference cycle has no shift
+    shifts[reference_idx] = (np.array([0.0, 0.0], dtype=np.float64), 0.0)
+    
+    # Open reference reader
+    ref_reader = PyramidalOMETiffReader(cycle_files[reference_idx])
+    
+    try:
+        # Align each target cycle to reference
+        for i, target_file in enumerate(cycle_files):
+            if i == reference_idx:
+                continue
+            
+            target_reader = PyramidalOMETiffReader(target_file)
+            try:
+                shift, error = coarse_align_two_cycles_centroid(
+                    ref_reader,
+                    target_reader,
+                    dapi_channel=dapi_channel,
+                    level=level,
+                    segmentation_method=segmentation_method,
+                    icp_params=icp_params
+                )
+                shifts[i] = (shift, error)
+            except Exception as e:
+                import warnings
+                warnings.warn(
+                    f"Centroid-based alignment failed for cycle {i}: {e}\n"
+                    f"  Using zero shift with high error value",
+                    UserWarning
+                )
+                shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
+            finally:
+                target_reader.close()
+    finally:
+        ref_reader.close()
+    
+    return shifts
+
+
 def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
                            pyramid_level: int = 3, dapi_channel: int = 0,
                            filter_sigma: float = 0.0, upsample: int = 1,
                            fallback_on_failure: bool = True,
-                           max_error: float = 10.0) -> Dict[int, Tuple[np.ndarray, float]]:
+                           max_error: float = 10.0,
+                           coarse_mode: str = "phase_correlation",
+                           centroid_config: Optional[Dict] = None) -> Dict[int, Tuple[np.ndarray, float]]:
     """
     Coarse align all cycles to reference cycle.
     
@@ -273,6 +402,16 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
         Channel index for DAPI (default: 0)
     filter_sigma : float
         Gaussian filter sigma for preprocessing
+    upsample : int
+        Upsampling factor for sub-pixel accuracy (default: 1)
+    fallback_on_failure : bool
+        If True, try lower pyramid level on failure (default: True)
+    max_error : float
+        Maximum acceptable alignment error (default: 10.0)
+    coarse_mode : str
+        Coarse alignment mode: "phase_correlation" or "centroid" (default: "phase_correlation")
+    centroid_config : dict, optional
+        Configuration for centroid-based alignment (default: None)
         
     Returns
     -------
@@ -280,6 +419,26 @@ def coarse_align_all_cycles(cycle_files: List[Path], reference_idx: int = 0,
         Dictionary mapping cycle index to (shift, error) tuple
         Shift is (dy, dx) in pixels at full resolution
     """
+    # Branch based on coarse_mode
+    if coarse_mode == "centroid":
+        # Use centroid-based alignment
+        if centroid_config is None:
+            centroid_config = {}
+        
+        level = centroid_config.get('level', 2)
+        segmentation_method = centroid_config.get('segmentation_method', 'stardist')
+        icp_params = centroid_config.get('icp_params', None)
+        
+        return coarse_align_all_cycles_centroid(
+            cycle_files,
+            reference_idx=reference_idx,
+            dapi_channel=dapi_channel,
+            level=level,
+            segmentation_method=segmentation_method,
+            icp_params=icp_params
+        )
+    
+    # Default: phase correlation mode
     if reference_idx >= len(cycle_files):
         raise ValueError(f"Reference index {reference_idx} out of range")
     

@@ -135,11 +135,45 @@ validate_registration cycle_00.ome.tif aligned/cycle_*.ome.tif --ground-truth --
 ### Key Features
 
 - **Multi-scale pyramid-based registration**: Fast coarse alignment + sub-pixel fine registration
+- **Centroid-based registration**: Alternative DAPI nuclei segmentation + ICP point cloud registration mode
 - **Tiled processing**: Memory-efficient handling of large images (up to 35K×35K pixels)
 - **GPU acceleration**: Optional PyTorch-based GPU acceleration for faster processing
 - **Cloud-optimized**: Automatic parameter optimization for AWS deployment
 - **Checkpoint/resume**: Resume from failures without losing progress
 - **Comprehensive validation**: Accuracy metrics and visual validation tools
+
+### Centroid-Based Registration Mode
+
+For large images (32K×32K pixels) with DAPI channel, centroid-based registration provides an alternative to phase correlation:
+
+1. **Segments DAPI nuclei** using StarDist 2D (deep learning) or classical watershed
+2. **Extracts centroids** from segmented nuclei
+3. **Registers centroids** using ICP (Iterative Closest Point) point cloud alignment
+
+**Usage**:
+```bash
+# Install optional dependencies for centroid mode
+pip install ashlar[centroid]
+
+# Use centroid-based coarse alignment
+register_multi_scale --base-input-dir . --base-output-dir . \
+    --coarse-mode centroid \
+    --centroid-segmentation stardist \
+    --coarse-only \
+    --alignment-only
+```
+
+**When to use**:
+- Large images (16K×16K or 32K×32K) where phase correlation may be slow
+- DAPI channel available with clear nuclei
+- Need faster coarse alignment for many cycles
+
+**Configuration options**:
+- `--coarse-mode`: Choose `phase_correlation` (default) or `centroid`
+- `--centroid-level`: Pyramid level for segmentation (default: auto-configured)
+- `--centroid-segmentation`: `stardist` (requires StarDist) or `watershed` (classical)
+- `--centroid-threshold`: ICP matching distance threshold (default: 10.0 pixels)
+- `--centroid-min-matches`: Minimum centroid matches required (default: 20)
 
 ### Documentation
 

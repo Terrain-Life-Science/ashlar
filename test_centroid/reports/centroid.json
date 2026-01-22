@@ -1,0 +1,551 @@
+{
+  "runs": [
+    {
+      "summary": {
+        "total_time_seconds": 0.19470691680908203,
+        "total_time_formatted": "0.19 seconds",
+        "num_cycles": 3,
+        "average_rmse": 100.0,
+        "average_mean_residual": 0.0,
+        "average_shift_x": 0.0,
+        "average_shift_y": 0.0,
+        "average_std_shift_x": 0.0,
+        "average_std_shift_y": 0.0
+      },
+      "performance": {
+        "start_time": "2026-01-22T15:42:28.520549",
+        "end_time": "2026-01-22T15:42:28.715256",
+        "elapsed_time_seconds": 0.19470691680908203,
+        "phases": {
+          "Coarse Alignment": 0.18144655227661133,
+          "Transform Creation - Cycle 1": 0.00047516822814941406,
+          "Transform Creation - Cycle 2": 0.00043392181396484375
+        },
+        "cpu_cores_used": 8,
+        "cpu_threads_used": 16,
+        "peak_memory_mb": 93.25,
+        "current_memory_mb": 93.25,
+        "gpu_available": false,
+        "gpu_cores_used": 0,
+        "input_file_sizes_mb": {
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\1x\\cycle_00.ome.tif": 25.169896125793457,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\1x\\cycle_01.ome.tif": 26.59074306488037,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\1x\\cycle_02.ome.tif": 26.60937786102295
+        },
+        "output_file_sizes_mb": {},
+        "total_input_size_mb": 78.37001705169678,
+        "total_output_size_mb": 0
+      },
+      "accuracy_by_cycle": [
+        {
+          "cycle_idx": 0,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 0.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "identity",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 0.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 1,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 2,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        }
+      ],
+      "scale_factor": 1.0,
+      "image_size": {
+        "width": 2048,
+        "height": 2048
+      },
+      "input_directory": "synthetic_test_images\\1x",
+      "output_directory": "test_centroid\\output\\aligned_output_1x",
+      "alignment_only": true
+    },
+    {
+      "summary": {
+        "total_time_seconds": 0.2297062873840332,
+        "total_time_formatted": "0.23 seconds",
+        "num_cycles": 3,
+        "average_rmse": 100.0,
+        "average_mean_residual": 0.0,
+        "average_shift_x": 0.0,
+        "average_shift_y": 0.0,
+        "average_std_shift_x": 0.0,
+        "average_std_shift_y": 0.0
+      },
+      "performance": {
+        "start_time": "2026-01-22T15:42:28.746264",
+        "end_time": "2026-01-22T15:42:28.975970",
+        "elapsed_time_seconds": 0.2297062873840332,
+        "phases": {
+          "Coarse Alignment": 0.21460556983947754,
+          "Transform Creation - Cycle 1": 0.00030612945556640625,
+          "Transform Creation - Cycle 2": 0.00034308433532714844
+        },
+        "cpu_cores_used": 8,
+        "cpu_threads_used": 16,
+        "peak_memory_mb": 98.47265625,
+        "current_memory_mb": 98.47265625,
+        "gpu_available": false,
+        "gpu_cores_used": 0,
+        "input_file_sizes_mb": {
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\2x\\cycle_00.ome.tif": 98.91462993621826,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\2x\\cycle_01.ome.tif": 105.51772785186768,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\2x\\cycle_02.ome.tif": 105.84975528717041
+        },
+        "output_file_sizes_mb": {},
+        "total_input_size_mb": 310.28211307525635,
+        "total_output_size_mb": 0
+      },
+      "accuracy_by_cycle": [
+        {
+          "cycle_idx": 0,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 0.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "identity",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 0.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 1,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 2,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        }
+      ],
+      "scale_factor": 2.0,
+      "image_size": {
+        "width": 4096,
+        "height": 4096
+      },
+      "input_directory": "synthetic_test_images\\2x",
+      "output_directory": "test_centroid\\output\\aligned_output_2x",
+      "alignment_only": true
+    },
+    {
+      "summary": {
+        "total_time_seconds": 0.862746000289917,
+        "total_time_formatted": "0.86 seconds",
+        "num_cycles": 3,
+        "average_rmse": 100.0,
+        "average_mean_residual": 0.0,
+        "average_shift_x": 0.0,
+        "average_shift_y": 0.0,
+        "average_std_shift_x": 0.0,
+        "average_std_shift_y": 0.0
+      },
+      "performance": {
+        "start_time": "2026-01-22T15:42:28.995224",
+        "end_time": "2026-01-22T15:42:29.857970",
+        "elapsed_time_seconds": 0.862746000289917,
+        "phases": {
+          "Coarse Alignment": 0.8451690673828125,
+          "Transform Creation - Cycle 1": 0.000316619873046875,
+          "Transform Creation - Cycle 2": 0.00027871131896972656
+        },
+        "cpu_cores_used": 8,
+        "cpu_threads_used": 16,
+        "peak_memory_mb": 92.80859375,
+        "current_memory_mb": 92.80859375,
+        "gpu_available": false,
+        "gpu_cores_used": 0,
+        "input_file_sizes_mb": {
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\4x\\cycle_00.ome.tif": 393.53033542633057,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\4x\\cycle_01.ome.tif": 421.1437997817993,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\4x\\cycle_02.ome.tif": 422.9690923690796
+        },
+        "output_file_sizes_mb": {},
+        "total_input_size_mb": 1237.6432275772095,
+        "total_output_size_mb": 0
+      },
+      "accuracy_by_cycle": [
+        {
+          "cycle_idx": 0,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 0.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "identity",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 0.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 1,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 2,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        }
+      ],
+      "scale_factor": 4.0,
+      "image_size": {
+        "width": 8192,
+        "height": 8192
+      },
+      "input_directory": "synthetic_test_images\\4x",
+      "output_directory": "test_centroid\\output\\aligned_output_4x",
+      "alignment_only": true
+    },
+    {
+      "summary": {
+        "total_time_seconds": 6.448987245559692,
+        "total_time_formatted": "6.45 seconds",
+        "num_cycles": 3,
+        "average_rmse": 100.0,
+        "average_mean_residual": 0.0,
+        "average_shift_x": 0.0,
+        "average_shift_y": 0.0,
+        "average_std_shift_x": 0.0,
+        "average_std_shift_y": 0.0
+      },
+      "performance": {
+        "start_time": "2026-01-22T15:42:29.887143",
+        "end_time": "2026-01-22T15:42:36.336130",
+        "elapsed_time_seconds": 6.448987245559692,
+        "phases": {
+          "Coarse Alignment": 6.432258605957031,
+          "Transform Creation - Cycle 1": 0.0002732276916503906,
+          "Transform Creation - Cycle 2": 0.0002465248107910156
+        },
+        "cpu_cores_used": 8,
+        "cpu_threads_used": 16,
+        "peak_memory_mb": 90.49609375,
+        "current_memory_mb": 90.49609375,
+        "gpu_available": false,
+        "gpu_cores_used": 0,
+        "input_file_sizes_mb": {
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\8x\\cycle_00.ome.tif": 1560.8703031539917,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\8x\\cycle_01.ome.tif": 1667.798119544983,
+          "C:\\Users\\Jay - Work\\github\\terrain\\ashlar\\synthetic_test_images\\8x\\cycle_02.ome.tif": 1681.0595865249634
+        },
+        "output_file_sizes_mb": {},
+        "total_input_size_mb": 4909.728009223938,
+        "total_output_size_mb": 0
+      },
+      "accuracy_by_cycle": [
+        {
+          "cycle_idx": 0,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 0.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "identity",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 0.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 1,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        },
+        {
+          "cycle_idx": 2,
+          "coarse_shift": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "coarse_error": 100.0,
+          "num_tiles": 0,
+          "num_inliers": 0,
+          "inlier_ratio": 0.0,
+          "transform_type": "translation",
+          "transform_params": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "rmse": 100.0,
+          "mean_residual": 0.0,
+          "max_residual": 0.0,
+          "min_residual": 0.0,
+          "mean_shift_x": 0.0,
+          "mean_shift_y": 0.0,
+          "std_shift_x": 0.0,
+          "std_shift_y": 0.0
+        }
+      ],
+      "scale_factor": 8.0,
+      "image_size": {
+        "width": 16384,
+        "height": 16384
+      },
+      "input_directory": "synthetic_test_images\\8x",
+      "output_directory": "test_centroid\\output\\aligned_output_8x",
+      "alignment_only": true
+    }
+  ],
+  "scaling_analysis": {
+    "num_scales": 4,
+    "scale_factors": [
+      1.0,
+      2.0,
+      4.0,
+      8.0
+    ],
+    "scaling_ratios": [
+      {
+        "scale_factor": 1.0,
+        "time_ratio": 1.0,
+        "memory_ratio": 1.0,
+        "input_size_ratio": 1.0,
+        "output_size_ratio": 0.0
+      },
+      {
+        "scale_factor": 2.0,
+        "time_ratio": 1.1797541204417996,
+        "memory_ratio": 1.056007037533512,
+        "input_size_ratio": 3.9591941503672095,
+        "output_size_ratio": 0.0
+      },
+      {
+        "scale_factor": 4.0,
+        "time_ratio": 4.430998212230304,
+        "memory_ratio": 0.9952664209115282,
+        "input_size_ratio": 15.792305197034706,
+        "output_size_ratio": 0.0
+      },
+      {
+        "scale_factor": 8.0,
+        "time_ratio": 33.121510787843164,
+        "memory_ratio": 0.9704674932975871,
+        "input_size_ratio": 62.64804058910994,
+        "output_size_ratio": 0.0
+      }
+    ],
+    "aggregated_metrics": {
+      "total_time_across_scales": 7.736146450042725,
+      "max_memory_across_scales": 98.47265625,
+      "min_memory_across_scales": 90.49609375,
+      "average_rmse_across_scales": 100.0,
+      "max_rmse_across_scales": 100.0,
+      "min_rmse_across_scales": 100.0
+    }
+  }
+}
