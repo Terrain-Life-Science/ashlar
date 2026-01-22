@@ -319,15 +319,6 @@ class EvosRegistrationPipeline:
                     self._print(f"Auto-configured pyramid level: {optimal_level} "
                                f"(based on image size {image_size['width']}×{image_size['height']})")
                 
-                # Additional validation: for large images, ensure level 3 is used
-                if image_dimension >= 16384 and optimal_level < 3:
-                    self._print(
-                        f"WARNING: Large image ({image_dimension}×{image_dimension}) will use "
-                        f"pyramid level {optimal_level} instead of recommended level 3. "
-                        f"This may cause memory issues.",
-                        level='WARNING'
-                    )
-                
                 self.coarse_pyramid_level = optimal_level
             except Exception as e:
                 # Re-raise if it's a ValueError or RuntimeError (these indicate real problems)
@@ -980,8 +971,22 @@ class EvosRegistrationPipeline:
                 self._print_clean(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
             else:
                 pyramid_level = self.coarse_pyramid_level
-                upsample = 1
-                self._print_clean(f"  Using pyramid level {pyramid_level}")
+                
+                # For large images (4x, 8x, 16x) using pyramid level 3, use upsampling to improve
+                # coarse alignment precision. At level 3, these images have effective sizes of
+                # 1024×1024 (4x), 2048×2048 (8x), or 4096×4096 (16x), which are too large for
+                # accurate phase correlation. Upsampling helps detect sub-pixel shifts more accurately.
+                if self.image_size and pyramid_level == 3:
+                    image_dimension = max(self.image_size.get('width', 0), self.image_size.get('height', 0))
+                    if image_dimension >= 8192:  # 4x, 8x, and 16x images
+                        upsample = 10
+                        self._print_clean(f"  Using pyramid level {pyramid_level} with {upsample}x upsampling for improved precision on large image ({image_dimension}×{image_dimension})")
+                    else:
+                        upsample = 1
+                        self._print_clean(f"  Using pyramid level {pyramid_level}")
+                else:
+                    upsample = 1
+                    self._print_clean(f"  Using pyramid level {pyramid_level}")
             
             self.coarse_shifts = coarse_align_all_cycles(
                 self.cycle_files,
