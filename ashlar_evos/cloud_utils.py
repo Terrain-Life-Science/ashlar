@@ -33,9 +33,6 @@ def calculate_optimal_pyramid_level(
     Maintains consistent effective resolution (~256×256) regardless of image size,
     ensuring fast coarse alignment for large images while maintaining accuracy.
     
-    For very large images (8x: 16384×16384, 16x: 32768×32768), enforces minimum
-    pyramid level 3 to prevent memory crashes during coarse alignment.
-    
     Parameters
     ----------
     image_width : int
@@ -55,19 +52,15 @@ def calculate_optimal_pyramid_level(
     """
     image_dimension = max(image_width, image_height)
     
-    # For very large images (8x and 16x), enforce minimum level 3 to prevent OOM
-    # 8x scale: 16384×16384 pixels
-    # 16x scale: 32768×32768 pixels
-    min_level_for_large_images = 3
-    if image_dimension >= 16384:
-        # Enforce minimum level 3 for 8x and 16x images
-        optimal_level = min_level_for_large_images
-    else:
-        # Calculate pyramid level: level N means image is 2^N times smaller
-        # We want: image_dimension / 2^level ≈ target_effective_size
-        # So: 2^level ≈ image_dimension / target_effective_size
-        # Therefore: level ≈ log2(image_dimension / target_effective_size)
-        optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
+    # Calculate pyramid level: level N means image is 2^N times smaller
+    # We want: image_dimension / 2^level ≈ target_effective_size
+    # So: 2^level ≈ image_dimension / target_effective_size
+    # Therefore: level ≈ log2(image_dimension / target_effective_size)
+    optimal_level = max(0, int(np.log2(image_dimension / target_effective_size)))
+    
+    # Cap maximum level at 4 to prevent using levels that are too high (too downsampled)
+    # Most images have 4-5 pyramid levels (0-4), so level 5+ may not exist or be too downsampled
+    optimal_level = min(optimal_level, 4)
     
     # Get actual number of pyramid levels from image metadata
     try:
@@ -81,37 +74,10 @@ def calculate_optimal_pyramid_level(
             else:
                 max_pyramid_level = num_levels - 1  # Levels are 0-indexed
                 # Clamp to available pyramid levels, ensuring >= 0
-                # For large images, ensure we don't go below minimum level if available
-                if image_dimension >= 16384:
-                    # For 8x/16x images, require level 3 to prevent OOM
-                    if max_pyramid_level >= min_level_for_large_images:
-                        optimal_level = min_level_for_large_images
-                    else:
-                        # Level 3 not available - this is a problem for large images
-                        # Raise error to prevent OOM crashes
-                        raise ValueError(
-                            f"Large image ({image_dimension}×{image_dimension} pixels) requires "
-                            f"pyramid level {min_level_for_large_images} for safe coarse alignment, "
-                            f"but image only has {num_levels} levels (0-{max_pyramid_level}). "
-                            f"Please regenerate images with at least {min_level_for_large_images + 1} pyramid levels."
-                        )
-                else:
-                    # For smaller images, clamp to available levels
-                    optimal_level = min(optimal_level, max(0, max_pyramid_level))
-    except Exception as e:
+                optimal_level = min(optimal_level, max(0, max_pyramid_level))
+    except Exception:
         # If metadata reading fails, use a conservative default
-        # But for large images, we can't proceed safely without knowing available levels
-        if image_dimension >= 16384:
-            # For large images, we need to know available levels to prevent OOM
-            # Re-raise the exception with a helpful message
-            raise RuntimeError(
-                f"Failed to read pyramid levels from {cycle_file} for large image "
-                f"({image_dimension}×{image_dimension} pixels). Cannot safely determine "
-                f"coarse alignment level. Original error: {e}"
-            ) from e
-        else:
-            # For smaller images, use conservative fallback
-            optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
+        optimal_level = min(optimal_level, 4)  # Assume max 5 levels (0-4)
     
     # Final validation: ensure optimal_level is never negative
     return max(0, optimal_level)
