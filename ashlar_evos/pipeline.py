@@ -231,6 +231,7 @@ class EvosRegistrationPipeline:
         self.fine_shifts = {}
         self.transforms = {}
         self.metadata = {}
+        self.tile_metadata = {}  # Store tile metadata per cycle for transform fitting
         
         # Checkpoint state
         self.checkpoint_path = None
@@ -980,8 +981,15 @@ class EvosRegistrationPipeline:
                 self._print_clean(f"  Using pyramid level {pyramid_level} (4x downsampled) with {upsample}x upsampling for sub-pixel accuracy")
             else:
                 pyramid_level = self.coarse_pyramid_level
-                upsample = 1
-                self._print_clean(f"  Using pyramid level {pyramid_level}")
+                # Use sub-pixel upsampling for high pyramid levels (>=3) to prevent systematic bias
+                # At level 3 (8x downsampled), integer pixel errors scale to 2-3 pixels at full resolution
+                # Sub-pixel upsampling eliminates this systematic error
+                if pyramid_level >= 3:
+                    upsample = 10
+                    self._print_clean(f"  Using pyramid level {pyramid_level} with {upsample}x upsampling for sub-pixel accuracy")
+                else:
+                    upsample = 1
+                    self._print_clean(f"  Using pyramid level {pyramid_level}")
             
             self.coarse_shifts = coarse_align_all_cycles(
                 self.cycle_files,
@@ -1054,7 +1062,7 @@ class EvosRegistrationPipeline:
                 if not self._validate_shift(coarse_shift, cycle_idx):
                     self._print_clean(f"Proceeding with fine registration despite extreme coarse shift", level='WARNING')
                 
-                results = register_all_tiles(
+                results, tile_metadata = register_all_tiles(
                     ref_reader, target_reader, grid,
                     dapi_channel=self.dapi_channel,
                     coarse_shift=coarse_shift,
@@ -1062,6 +1070,17 @@ class EvosRegistrationPipeline:
                     skip_failed_tiles=True  # Skip failed tiles gracefully
                 )
                 self.fine_shifts[cycle_idx] = results
+                self.tile_metadata[cycle_idx] = tile_metadata  # Store per cycle for transform fitting
+                
+                # Report on padding issues
+                padded_count = sum(1 for m in tile_metadata if m.get('has_padding', False))
+                if padded_count > 0:
+                    self._print_clean(
+                        f"  Warning: {padded_count} tiles have significant padding (>10%). "
+                        f"These will be excluded from transform fitting.",
+                        level='WARNING'
+                    )
+                
                 self._print_status(f"Registered {len(results)} tiles")
                 
                 self._log_memory_usage(f"Fine Registration (end) - Cycle {cycle_idx}")
@@ -1159,8 +1178,28 @@ class EvosRegistrationPipeline:
             shifts = np.array([r[0] for r in results])
             errors = np.array([r[1] for r in results])
             
+            # Get tile metadata if available (for excluding padded tiles)
+            tile_metadata = self.tile_metadata.get(cycle_idx, None)
+            
             # Filter outliers
             inliers = filter_outliers(shifts, errors, max_shift=50.0, max_error=None)
+            
+            # Exclude tiles with significant padding (>10%) from transform fitting
+            # These tiles have unreliable shifts due to zero-padding
+            if tile_metadata and len(tile_metadata) == len(shifts):
+                padding_mask = np.array([
+                    not m.get('has_padding', False) and not m.get('failed', False)
+                    for m in tile_metadata
+                ])
+                # Combine with outlier filter
+                inliers = inliers & padding_mask
+                
+                excluded_padding = np.sum(~padding_mask)
+                if excluded_padding > 0:
+                    self._print_clean(
+                        f"  Excluded {excluded_padding} tiles with significant padding from transform fitting"
+                    )
+            
             num_inliers = np.sum(inliers)
             self._print_clean(f"  Inliers: {num_inliers}/{len(shifts)}")
             

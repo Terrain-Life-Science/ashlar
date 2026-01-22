@@ -81,30 +81,41 @@ def fit_similarity_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     
     # Similarity transform: 4 parameters (tx, ty, rotation, scale)
     # We'll use least squares to fit
-    # Target positions = source positions + shifts
+    # Phase correlation shift means "shift target by this to align with reference"
+    # So: reference[P] ≈ target[P - shift], which means target[P] ≈ reference[P + shift]
+    # The transform should map target coordinates to reference coordinates
+    # So: reference_coord = transform @ target_coord
+    # If target is at position P+shift in its own coordinate system,
+    # and we want it at position P in reference coordinate system,
+    # then: reference_coord = target_coord - shift
+    # So we fit transform mapping: (positions + shift) -> positions
     target_positions = positions + shifts_inliers
     
     # Build system of equations for similarity transform
+    # Transform maps: reference = transform @ target
     # x' = s * (cos(θ) * x - sin(θ) * y) + tx
     # y' = s * (sin(θ) * x + cos(θ) * y) + ty
     # Linearize: x' = a*x - b*y + tx, y' = b*x + a*y + ty
     # where a = s*cos(θ), b = s*sin(θ)
+    # Input (target): target_positions, Output (reference): positions
     
     n = len(positions)
     A = np.zeros((2 * n, 4))
     b_vec = np.zeros(2 * n)
     
     # Fill matrix for x equation: x' = a*x - b*y + tx
-    A[:n, 0] = positions[:, 1]  # x coefficients for a
-    A[:n, 1] = -positions[:, 0]  # y coefficients for b
+    # Input x is from target_positions, output x' is from positions
+    A[:n, 0] = target_positions[:, 1]  # x coefficients for a (target x)
+    A[:n, 1] = -target_positions[:, 0]  # y coefficients for b (target y)
     A[:n, 2] = 1.0  # tx coefficient
-    b_vec[:n] = target_positions[:, 1]  # x'
+    b_vec[:n] = positions[:, 1]  # x' (reference x)
     
     # Fill matrix for y equation: y' = b*x + a*y + ty
-    A[n:, 0] = positions[:, 0]  # y coefficients for a
-    A[n:, 1] = positions[:, 1]  # x coefficients for b
+    # Input is target_positions, output is positions
+    A[n:, 0] = target_positions[:, 0]  # y coefficients for a (target y)
+    A[n:, 1] = target_positions[:, 1]  # x coefficients for b (target x)
     A[n:, 3] = 1.0  # ty coefficient
-    b_vec[n:] = target_positions[:, 0]  # y'
+    b_vec[n:] = positions[:, 0]  # y' (reference y)
     
     # Solve least squares
     params, residuals, rank, s = np.linalg.lstsq(A, b_vec, rcond=None)
@@ -127,12 +138,14 @@ def fit_similarity_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     all_residuals = np.zeros(len(tile_positions))
     for i, pos in enumerate(tile_positions):
         if inliers[i]:
-            # Apply transform
-            x, y = pos[1], pos[0]
+            # Apply transform (maps target -> reference)
+            # Input is target position (pos + shift), output should be reference position (pos)
+            target_pos = pos + shifts[i]
+            x, y = target_pos[1], target_pos[0]
             x_transformed = scale * (cos_theta * x - sin_theta * y) + tx
             y_transformed = scale * (sin_theta * x + cos_theta * y) + ty
             predicted = np.array([y_transformed, x_transformed])
-            actual = pos + shifts[i]
+            actual = pos  # Reference position
             all_residuals[i] = np.linalg.norm(predicted - actual)
         else:
             all_residuals[i] = np.inf
@@ -181,28 +194,39 @@ def fit_affine_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     positions = tile_positions[inliers]
     shifts_inliers = shifts[inliers]
     
-    # Target positions = source positions + shifts
+    # Phase correlation shift means "shift target by this to align with reference"
+    # So: reference[P] ≈ target[P - shift], which means target[P] ≈ reference[P + shift]
+    # The transform should map target coordinates to reference coordinates
+    # So: reference_coord = transform @ target_coord
+    # If target is at position P+shift in its own coordinate system,
+    # and we want it at position P in reference coordinate system,
+    # then: reference_coord = target_coord - shift
+    # So we fit transform mapping: (positions + shift) -> positions
     target_positions = positions + shifts_inliers
     
     # Affine transform: 6 parameters
+    # Transform maps: reference = transform @ target
     # x' = a*x + b*y + tx
     # y' = c*x + d*y + ty
+    # Input (target): target_positions, Output (reference): positions
     
     n = len(positions)
     A = np.zeros((2 * n, 6))
     b_vec = np.zeros(2 * n)
     
     # Fill matrix for x equation
-    A[:n, 0] = positions[:, 1]  # x coefficient for a
-    A[:n, 1] = positions[:, 0]  # y coefficient for b
+    # Input x is from target_positions, output x' is from positions
+    A[:n, 0] = target_positions[:, 1]  # x coefficient for a (target x)
+    A[:n, 1] = target_positions[:, 0]  # y coefficient for b (target y)
     A[:n, 2] = 1.0  # tx coefficient
-    b_vec[:n] = target_positions[:, 1]  # x'
+    b_vec[:n] = positions[:, 1]  # x' (reference x)
     
     # Fill matrix for y equation
-    A[n:, 3] = positions[:, 1]  # x coefficient for c
-    A[n:, 4] = positions[:, 0]  # y coefficient for d
+    # Input is target_positions, output is positions
+    A[n:, 3] = target_positions[:, 1]  # x coefficient for c (target x)
+    A[n:, 4] = target_positions[:, 0]  # y coefficient for d (target y)
     A[n:, 5] = 1.0  # ty coefficient
-    b_vec[n:] = target_positions[:, 0]  # y'
+    b_vec[n:] = positions[:, 0]  # y' (reference y)
     
     # Solve least squares
     params, residuals, rank, s = np.linalg.lstsq(A, b_vec, rcond=None)
@@ -219,12 +243,14 @@ def fit_affine_transform(tile_positions: np.ndarray, shifts: np.ndarray,
     all_residuals = np.zeros(len(tile_positions))
     for i, pos in enumerate(tile_positions):
         if inliers[i]:
-            # Apply transform
-            x, y = pos[1], pos[0]
+            # Apply transform (maps target -> reference)
+            # Input is target position (pos + shift), output should be reference position (pos)
+            target_pos = pos + shifts[i]
+            x, y = target_pos[1], target_pos[0]
             x_transformed = a * x + b * y + tx
             y_transformed = c * x + d * y + ty
             predicted = np.array([y_transformed, x_transformed])
-            actual = pos + shifts[i]
+            actual = pos  # Reference position
             all_residuals[i] = np.linalg.norm(predicted - actual)
         else:
             all_residuals[i] = np.inf
