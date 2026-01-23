@@ -214,6 +214,7 @@ class PyramidalOMETiffReader:
                 f"Pyramid level {requested_level} not available, using level {actual_level} instead. "
                 f"File: {self.filepath.name}",
                 UserWarning,
+                stacklevel=2,
             )
         # Zarr array shape is typically (T, Z, C, Y, X, S) or (C, Y, X)
         # Handle both cases

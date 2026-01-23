@@ -181,6 +181,7 @@ def register_tile(
         f"Tile registration failed after {max_retries + 1} attempts: {last_exception}\n"
         f"  Returning zero shift with high error value.",
         UserWarning,
+        stacklevel=2,
     )
     return np.array([0.0, 0.0], dtype=np.float64), 100.0
 
@@ -240,6 +241,7 @@ def register_single_tile_pair(
             f"Failed to register tile at ({tile_info.y}, {tile_info.x}): {e}\n"
             f"  Returning zero shift with high error value.",
             UserWarning,
+            stacklevel=2,
         )
         return np.array([0.0, 0.0], dtype=np.float64), 100.0
 
@@ -398,6 +400,7 @@ def register_all_tiles(
                         f"Failed to register tile {tile_idx} at ({tile_info.y}, {tile_info.x}): {e}\n"
                         f"  Skipping tile and continuing with others.",
                         UserWarning,
+                        stacklevel=2,
                     )
                     failed_tiles.append(tile_idx)
                     # Add zero shift with high error
@@ -411,6 +414,7 @@ def register_all_tiles(
             warnings.warn(
                 f"Skipped {len(failed_tiles)} failed tiles out of {len(grid)} total tiles.",
                 UserWarning,
+                stacklevel=2,
             )
 
         return results
@@ -466,6 +470,7 @@ def register_all_tiles(
                         f"Failed to register tile {tile_idx}: {error}\n"
                         f"  Skipping tile and continuing with others.",
                         UserWarning,
+                        stacklevel=2,
                     )
                     failed_tiles.append(tile_idx)
                     # Add zero shift with high error
@@ -484,6 +489,7 @@ def register_all_tiles(
                 f"Multiprocessing not available on Windows: {e}\n"
                 f"  Falling back to sequential processing. This may be slower.",
                 UserWarning,
+                stacklevel=2,
             )
 
             # Re-open readers if they were closed (Windows case)
@@ -511,6 +517,7 @@ def register_all_tiles(
                             f"Failed to register tile {tile_idx}: {tile_error}\n"
                             f"  Skipping tile and continuing with others.",
                             UserWarning,
+                            stacklevel=2,
                         )
                         failed_tiles.append(tile_idx)
                         results.append((np.array([0.0, 0.0], dtype=np.float64), 100.0))
@@ -523,7 +530,9 @@ def register_all_tiles(
 
     if failed_tiles and skip_failed_tiles:
         warnings.warn(
-            f"Skipped {len(failed_tiles)} failed tiles out of {len(grid)} total tiles.", UserWarning
+            f"Skipped {len(failed_tiles)} failed tiles out of {len(grid)} total tiles.",
+            UserWarning,
+            stacklevel=2,
         )
 
     return results

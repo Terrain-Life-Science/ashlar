@@ -361,6 +361,7 @@ def apply_transform_to_channel(
                                     f"Could not delete temporary file(s): {e}\n"
                                     f"  Files will be cleaned up automatically by the OS.",
                                     UserWarning,
+                                    stacklevel=2,
                                 )
 
                 return result

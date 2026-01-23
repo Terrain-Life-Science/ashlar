@@ -116,7 +116,7 @@ def coarse_align(
             f"  Returning zero shift with high error value."
         )
         if warn_on_high_error:
-            warnings.warn(error_msg, UserWarning)
+            warnings.warn(error_msg, UserWarning, stacklevel=2)
         shift = np.array([0.0, 0.0], dtype=np.float64)
         error = 100.0  # High error value to indicate failure
         return shift, error
@@ -129,7 +129,7 @@ def coarse_align(
             f"  Returning zero shift with high error value."
         )
         if warn_on_high_error:
-            warnings.warn(error_msg, UserWarning)
+            warnings.warn(error_msg, UserWarning, stacklevel=2)
         shift = np.array([0.0, 0.0], dtype=np.float64)
         error = 100.0
         return shift, error
@@ -147,6 +147,7 @@ def coarse_align(
             f"  - Checking image quality\n"
             f"  - Verifying images are from the same sample",
             UserWarning,
+            stacklevel=2,
         )
 
     return shift, error
@@ -219,6 +220,7 @@ def coarse_align_cycle(
             warnings.warn(
                 f"Failed to read pyramid level {pyramid_level}, trying level {pyramid_level - 1}: {e}",
                 UserWarning,
+                stacklevel=2,
             )
             return coarse_align_cycle(
                 reference_file,
@@ -244,6 +246,7 @@ def coarse_align_cycle(
             f"High alignment error ({error:.4f}) at pyramid level {pyramid_level}, "
             f"trying lower level {pyramid_level - 1}",
             UserWarning,
+            stacklevel=2,
         )
         try:
             fallback_shift, fallback_error = coarse_align_cycle(
@@ -393,6 +396,7 @@ def coarse_align_all_cycles_centroid(
                     f"Centroid-based alignment failed for cycle {i}: {e}\n"
                     f"  Using zero shift with high error value",
                     UserWarning,
+                    stacklevel=2,
                 )
                 shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
             finally:
@@ -538,6 +542,7 @@ def coarse_align_all_cycles(
                     f"Coarse alignment failed for cycle {i} at level {pyramid_level}: {e}\n"
                     f"  Attempting fallback to level {pyramid_level - 1}",
                     UserWarning,
+                    stacklevel=2,
                 )
                 try:
                     shift_full_res, error = coarse_align_cycle(
@@ -557,6 +562,7 @@ def coarse_align_all_cycles(
                         f"Coarse alignment failed for cycle {i} even with fallback: {fallback_error}\n"
                         f"  Using zero shift with high error value",
                         UserWarning,
+                        stacklevel=2,
                     )
                     shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
             else:
@@ -565,6 +571,7 @@ def coarse_align_all_cycles(
                     f"Coarse alignment failed for cycle {i}: {e}\n"
                     f"  Using zero shift with high error value",
                     UserWarning,
+                    stacklevel=2,
                 )
                 shifts[i] = (np.array([0.0, 0.0], dtype=np.float64), 100.0)
 
