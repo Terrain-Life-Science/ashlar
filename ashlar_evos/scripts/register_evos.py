@@ -139,6 +139,20 @@ Examples:
         "--estimate-memory", action="store_true", help="Estimate memory usage and exit"
     )
 
+    parser.add_argument(
+        "--checkpoint",
+        type=pathlib.Path,
+        default=None,
+        help="Path to checkpoint file for saving/loading state. "
+        "If file exists and --resume is set, will resume from checkpoint.",
+    )
+
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from checkpoint if it exists (requires --checkpoint)",
+    )
+
     args = parser.parse_args(argv)
 
     # Set up logging - organize logs into logs/ subdirectory
@@ -257,6 +271,7 @@ Examples:
         verbose=not args.quiet,
         coarse_only=args.coarse_only,
         image_size=image_size,
+        checkpoint_path=args.checkpoint,
     )
 
     # Run pipeline
@@ -287,7 +302,9 @@ Examples:
             return 0
         else:
             # Run full pipeline with image writing
-            output_files = pipeline.run_full_pipeline(args.output_dir, report_path=report_path)
+            output_files = pipeline.run_full_pipeline(
+                args.output_dir, report_path=report_path, resume=args.resume
+            )
 
             logger.info("")
             logger.info("Output files:")

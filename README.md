@@ -139,8 +139,10 @@ validate_registration cycle_00.ome.tif aligned/cycle_*.ome.tif --ground-truth --
 - **Tiled processing**: Memory-efficient handling of large images (up to 35K×35K pixels)
 - **GPU acceleration**: Optional PyTorch-based GPU acceleration for faster processing
 - **Cloud-optimized**: Automatic parameter optimization for AWS deployment
-- **Checkpoint/resume**: Resume from failures without losing progress
+- **Checkpoint/resume**: Resume from failures without losing progress (use `--checkpoint` and `--resume`)
 - **Comprehensive validation**: Accuracy metrics and visual validation tools
+- **Production-ready error handling**: Robust edge case handling, retry logic, and graceful degradation
+- **Performance monitoring**: Detailed timing and memory usage tracking with JSON reports
 
 ### Centroid-Based Registration Mode
 
@@ -189,6 +191,17 @@ register_evos cycle_00.ome.tif cycle_01.ome.tif cycle_02.ome.tif \
     --output-dir aligned/ \
     --cloud \
     --report report.json
+```
+
+**With Checkpoint/Resume**:
+```bash
+# First run (saves checkpoint automatically)
+register_evos cycle_*.ome.tif --output-dir aligned/ \
+    --checkpoint checkpoint.json
+
+# Resume from checkpoint if interrupted
+register_evos cycle_*.ome.tif --output-dir aligned/ \
+    --checkpoint checkpoint.json --resume
 ```
 
 **Batch Processing**:
