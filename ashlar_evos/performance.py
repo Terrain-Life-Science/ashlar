@@ -255,7 +255,6 @@ class PerformanceMonitor:
 
             # Extract shifts
             shifts = np.array([s[0] for s in fine_shifts])
-            errors = np.array([s[1] for s in fine_shifts])
 
             # Calculate statistics
             mean_shift_x = float(np.mean(shifts[:, 1]))

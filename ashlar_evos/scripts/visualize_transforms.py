@@ -209,7 +209,7 @@ def visualize_transforms(
         is_reference = cycle["index"] == metadata.get("reference_cycle", 0)
 
         # Add to viewer
-        layer = viewer.add_image(
+        viewer.add_image(
             img,
             name=f"Cycle {cycle['index']}" + (" (ref)" if is_reference else ""),
             affine=scaled_transform,
@@ -299,7 +299,7 @@ Examples:
         return 1
 
     # Run visualization
-    viewer = visualize_transforms(
+    visualize_transforms(
         transforms_path=args.transforms,
         pyramid_level=args.level,
         channel=args.channel,

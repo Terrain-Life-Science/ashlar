@@ -68,7 +68,6 @@ def write_pyramidal_ometiff(
     use_incremental = image_area > 50_000_000  # 50M pixels threshold (lowered from 100M)
 
     # In fast mode, reduce pyramid levels for very large images to speed up writing
-    original_num_levels = num_pyramid_levels
     if fast_mode and image_area > 200_000_000:  # 8x and larger
         num_pyramid_levels = min(num_pyramid_levels, 2)  # Only base + 1 pyramid level
     elif fast_mode and image_area > 50_000_000:  # 4x and larger

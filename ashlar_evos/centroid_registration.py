@@ -72,11 +72,11 @@ def segment_dapi_stardist(
 
     try:
         from stardist.models import StarDist2D
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "StarDist is not installed. Install with: pip install stardist csbdeep\n"
             "Or use segmentation_method='watershed' for classical segmentation."
-        )
+        ) from e
 
     # Normalize image if requested
     if normalize:
@@ -253,7 +253,7 @@ def register_centroids_icp(
         - metadata: dict with iteration count, match count, etc.
     """
     if len(ref_centroids) == 0 or len(target_centroids) == 0:
-        warnings.warn("Empty centroid arrays provided to ICP registration")
+        warnings.warn("Empty centroid arrays provided to ICP registration", stacklevel=2)
         return (
             np.array([0.0, 0.0], dtype=np.float64),
             100.0,
@@ -279,7 +279,6 @@ def register_centroids_icp(
         target_centroids = target_centroids[indices]
 
     # ICP iteration
-    prev_shift = shift.copy()
     num_matches = 0
 
     for iteration in range(max_iterations):
@@ -300,7 +299,8 @@ def register_centroids_icp(
             # Not enough matches - return current shift with high error
             warnings.warn(
                 f"ICP registration failed: only {num_matches} matches found "
-                f"(minimum: {min_matches})"
+                f"(minimum: {min_matches})",
+                stacklevel=2,
             )
             return (
                 shift,
@@ -336,8 +336,6 @@ def register_centroids_icp(
                     "converged": True,
                 },
             )
-
-        prev_shift = shift.copy()
 
     # Max iterations reached
     # Compute final RMSE
@@ -409,7 +407,9 @@ def estimate_shift_from_centroids(
             ref_labels = segment_dapi_stardist(ref_image, normalize=normalize)
             target_labels = segment_dapi_stardist(target_image, normalize=normalize)
         except ImportError:
-            warnings.warn("StarDist not available, falling back to watershed segmentation")
+            warnings.warn(
+                "StarDist not available, falling back to watershed segmentation", stacklevel=2
+            )
             ref_labels = segment_dapi_watershed(ref_image, normalize=normalize)
             target_labels = segment_dapi_watershed(target_image, normalize=normalize)
     elif segmentation_method == "watershed":
@@ -427,7 +427,9 @@ def estimate_shift_from_centroids(
 
     if len(ref_centroids) == 0 or len(target_centroids) == 0:
         warnings.warn(
-            f"Segmentation found no nuclei: ref={len(ref_centroids)}, target={len(target_centroids)}"
+            f"Segmentation found no nuclei: ref={len(ref_centroids)}, "
+            f"target={len(target_centroids)}",
+            stacklevel=2,
         )
         return (
             np.array([0.0, 0.0], dtype=np.float64),

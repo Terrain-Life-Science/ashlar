@@ -168,13 +168,12 @@ def run_registration_for_scale(
     if alignment_only:
         # Alignment-only mode: output transforms.json, skip image writing
         transforms_path = output_dir / "transforms.json"
-        result = pipeline.run_alignment_only(
+        pipeline.run_alignment_only(
             output_path=transforms_path, report_path=None  # We'll collect the report manually
         )
-        output_files = {}  # No image files in alignment-only mode
     else:
         # Full pipeline: write aligned images
-        output_files = pipeline.run_full_pipeline(
+        pipeline.run_full_pipeline(
             output_dir, report_path=None  # We'll collect the report manually
         )
 

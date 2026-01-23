@@ -16,7 +16,7 @@ from .metadata import OMEMetadata
 # Try to import boto3 for AWS quota checking (optional dependency)
 try:
     import boto3
-    from botocore.exceptions import BotoCoreError, ClientError
+    from botocore.exceptions import ClientError
 
     AWS_AVAILABLE = True
 except ImportError:

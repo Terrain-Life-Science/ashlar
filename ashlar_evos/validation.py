@@ -533,7 +533,6 @@ def create_overlay_image(
         Figure object if matplotlib is available, None otherwise
     """
     try:
-        import matplotlib.colors as mcolors
         import matplotlib.pyplot as plt
     except ImportError:
         return None

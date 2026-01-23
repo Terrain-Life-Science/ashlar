@@ -720,7 +720,6 @@ class EvosRegistrationPipeline:
             import psutil
 
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            total_memory_mb = psutil.virtual_memory().total / (1024 * 1024)
 
             estimated_mb = memory_est["total_estimated_mb"]
 

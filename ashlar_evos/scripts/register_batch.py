@@ -94,7 +94,7 @@ def register_single_sample(args_tuple) -> Dict:
         pipeline = EvosRegistrationPipeline(cycle_files=cycle_files, **pipeline_kwargs)
 
         # Run pipeline
-        output_files = pipeline.run_full_pipeline(output_dir, report_path=None)
+        pipeline.run_full_pipeline(output_dir, report_path=None)
 
         # Get report
         report = pipeline.performance_monitor.generate_report()

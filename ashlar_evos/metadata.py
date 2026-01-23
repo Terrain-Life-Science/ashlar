@@ -77,7 +77,6 @@ class OMEMetadata:
                 # Look for resolution tags
                 if "XResolution" in page.tags and "YResolution" in page.tags:
                     x_res = page.tags["XResolution"].value
-                    y_res = page.tags["YResolution"].value
                     if isinstance(x_res, tuple) and len(x_res) == 2:
                         # Resolution is in pixels per unit
                         # Convert to micrometers (assuming unit is cm)
