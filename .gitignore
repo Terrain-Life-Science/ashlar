@@ -24,6 +24,9 @@ aws_assessment_reports/*.json
 test_opt*/
 test_optimized*/
 test_final_optimized/
+# Unified test outputs directory (keep structure, ignore generated files)
+test_outputs/*
+!test_outputs/.gitkeep
 
 # Multi-scale test images (can be regenerated, inside synthetic_test_images/)
 synthetic_test_images/*/
@@ -45,3 +48,7 @@ aligned_output*/
 aligned_*/
 *.log
 !package-lock.json
+
+# Scratch/temporary files directory
+scratch/*
+!scratch/.gitkeep
