@@ -1,18 +1,17 @@
 import napari
-import numpy as np
 import networkx as nx
+import numpy as np
 
-
-_colormaps = ['red', 'green', 'blue', 'magenta', 'cyan', 'yellow']
+_colormaps = ["red", "green", "blue", "magenta", "cyan", "yellow"]
 
 
 def view_edges(
-        aligner,
-        viewer=None,
-        tiles=None,
-        vmin=None,
-        vmax=None,
-        gamma=1/2.2,
+    aligner,
+    viewer=None,
+    tiles=None,
+    vmin=None,
+    vmax=None,
+    gamma=1 / 2.2,
 ):
     """View EdgeAligner results in a Napari viewer using a checkerboard style.
 
@@ -109,8 +108,8 @@ def view_edges(
             colormap=_colormaps[node_colors[i]],
             contrast_limits=(dmin, dmax),
             gamma=gamma,
-            blending='additive',
-            interpolation='linear',
+            blending="additive",
+            interpolation="linear",
         )
         image.events.contrast_limits.connect(contrast_limits_callback)
         image.events.gamma.connect(gamma_callback)

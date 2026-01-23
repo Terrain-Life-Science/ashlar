@@ -1,121 +1,175 @@
-import warnings
-import sys
-import re
 import argparse
 import pathlib
+import re
+import sys
+import warnings
+
 import blessed
+
 from .. import __version__ as VERSION
 from .. import reg
-from ..reg import PlateReader, BioformatsReader
 from ..filepattern import FilePatternReader
 from ..fileseries import FileSeriesReader
+from ..reg import BioformatsReader, PlateReader
 from ..zen import ZenReader
 
 
 def main(argv=sys.argv):
 
     parser = argparse.ArgumentParser(
-        description='Stitch and align multi-tile cyclic microscope images',
+        description="Stitch and align multi-tile cyclic microscope images",
         formatter_class=HelpFormatter,
     )
     parser.add_argument(
-        'filepaths', metavar='FILE', nargs='+',
-        help='Image file(s) to be processed, one per cycle',
+        "filepaths",
+        metavar="FILE",
+        nargs="+",
+        help="Image file(s) to be processed, one per cycle",
     )
     parser.add_argument(
-        '-o', '--output', dest='output', default='ashlar_output.ome.tif',
-        metavar='PATH',
-        help=("Output file. If PATH ends in .ome.tif a pyramidal OME-TIFF will"
-              " be written. If PATH ends in just .tif and includes {cycle} and"
-              " {channel} placeholders, a series of single-channel plain TIFF"
-              " files will be written. If PATH starts with a relative or"
-              " absolute path to another directory, that directory must already"
-              " exist."),
+        "-o",
+        "--output",
+        dest="output",
+        default="ashlar_output.ome.tif",
+        metavar="PATH",
+        help=(
+            "Output file. If PATH ends in .ome.tif a pyramidal OME-TIFF will"
+            " be written. If PATH ends in just .tif and includes {cycle} and"
+            " {channel} placeholders, a series of single-channel plain TIFF"
+            " files will be written. If PATH starts with a relative or"
+            " absolute path to another directory, that directory must already"
+            " exist."
+        ),
     )
     parser.add_argument(
-        '-c', '--align-channel', dest='align_channel', type=int,
-        default='0', metavar='CHANNEL',
-        help=('Reference channel number for image alignment. Numbering starts'
-              ' at 0.'),
+        "-c",
+        "--align-channel",
+        dest="align_channel",
+        type=int,
+        default="0",
+        metavar="CHANNEL",
+        help=("Reference channel number for image alignment. Numbering starts" " at 0."),
     )
     parser.add_argument(
-        '--flip-x', default=False, action='store_true',
-        help='Flip tile positions left-to-right',
+        "--flip-x",
+        default=False,
+        action="store_true",
+        help="Flip tile positions left-to-right",
     )
     parser.add_argument(
-        '--flip-y', default=False, action='store_true',
-        help='Flip tile positions top-to-bottom',
+        "--flip-y",
+        default=False,
+        action="store_true",
+        help="Flip tile positions top-to-bottom",
     )
     parser.add_argument(
-        '--flip-mosaic-x', default=False, action='store_true',
-        help='Flip output image left-to-right',
+        "--flip-mosaic-x",
+        default=False,
+        action="store_true",
+        help="Flip output image left-to-right",
     )
     parser.add_argument(
-        '--flip-mosaic-y', default=False, action='store_true',
-        help='Flip output image top-to-bottom',
+        "--flip-mosaic-y",
+        default=False,
+        action="store_true",
+        help="Flip output image top-to-bottom",
     )
     parser.add_argument(
-        '--output-channels', nargs='+', type=int, metavar='CHANNEL',
-        help=('Output only specified channels for each cycle. Numbering starts'
-              ' at 0. (default: all channels)'),
+        "--output-channels",
+        nargs="+",
+        type=int,
+        metavar="CHANNEL",
+        help=(
+            "Output only specified channels for each cycle. Numbering starts"
+            " at 0. (default: all channels)"
+        ),
     )
     parser.add_argument(
-        '-m', '--maximum-shift', type=float, default=15, metavar='SHIFT',
-        help='Maximum allowed per-tile corrective shift in microns',
+        "-m",
+        "--maximum-shift",
+        type=float,
+        default=15,
+        metavar="SHIFT",
+        help="Maximum allowed per-tile corrective shift in microns",
     )
     parser.add_argument(
-        "--stitch-alpha", type=float, default=0.01, metavar="ALPHA",
+        "--stitch-alpha",
+        type=float,
+        default=0.01,
+        metavar="ALPHA",
         help="Significance level for permutation testing during alignment error"
         " quantification. Larger values include more tile pairs in the spanning"
-        " tree at the cost of increased false positives."
+        " tree at the cost of increased false positives.",
     )
     parser.add_argument(
-        "--maximum-error", type=float, default=None, help=argparse.SUPPRESS,
+        "--maximum-error",
+        type=float,
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
-        '--filter-sigma', type=float, default=0, metavar='SIGMA',
-        help=('Filter images before alignment using a Gaussian kernel with s.d.'
-              ' of SIGMA pixels (default: no filtering)'),
+        "--filter-sigma",
+        type=float,
+        default=0,
+        metavar="SIGMA",
+        help=(
+            "Filter images before alignment using a Gaussian kernel with s.d."
+            " of SIGMA pixels (default: no filtering)"
+        ),
     )
     parser.add_argument(
-        '-f', '--filename-format', dest='filename_format',
-        default='cycle_{cycle}_channel_{channel}.tif', help=argparse.SUPPRESS,
+        "-f",
+        "--filename-format",
+        dest="filename_format",
+        default="cycle_{cycle}_channel_{channel}.tif",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--pyramid", default=False, action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--tile-size",
+        type=int,
+        default=1024,
+        metavar="PIXELS",
+        help="Pyramid tile size for OME-TIFF output",
     )
     parser.add_argument(
-        '--pyramid', default=False, action='store_true', help=argparse.SUPPRESS
+        "--ffp",
+        metavar="FILE",
+        nargs="+",
+        help=(
+            "Perform flat field illumination correction using the given"
+            " profile image. Specify one common file for all cycles or one"
+            " file for every cycle. Channel counts must match input files."
+            " (default: no flat field correction)"
+        ),
     )
     parser.add_argument(
-        '--tile-size', type=int, default=1024, metavar='PIXELS',
-        help='Pyramid tile size for OME-TIFF output',
+        "--dfp",
+        metavar="FILE",
+        nargs="+",
+        help=(
+            "Perform dark field illumination correction using the given"
+            " profile image. Specify one common file for all cycles or one"
+            " file for every cycle. Channel counts must match input files."
+            " (default: no dark field correction)"
+        ),
+    )
+    parser.add_argument("--barrel-correction", type=float, default=0, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--plates",
+        default=False,
+        action="store_true",
+        help="Enable plate mode for HTS data",
     )
     parser.add_argument(
-        '--ffp', metavar='FILE', nargs='+',
-        help=("Perform flat field illumination correction using the given"
-              " profile image. Specify one common file for all cycles or one"
-              " file for every cycle. Channel counts must match input files."
-              " (default: no flat field correction)"),
+        "-q",
+        "--quiet",
+        dest="quiet",
+        default=False,
+        action="store_true",
+        help="Suppress progress display",
     )
-    parser.add_argument(
-        '--dfp', metavar='FILE', nargs='+',
-        help=("Perform dark field illumination correction using the given"
-              " profile image. Specify one common file for all cycles or one"
-              " file for every cycle. Channel counts must match input files."
-              " (default: no dark field correction)"),
-    )
-    parser.add_argument(
-        "--barrel-correction", type=float, default=0, help=argparse.SUPPRESS
-    )
-    parser.add_argument(
-        '--plates', default=False, action='store_true',
-        help='Enable plate mode for HTS data',
-    )
-    parser.add_argument(
-        '-q', '--quiet', dest='quiet', default=False,
-        action='store_true', help='Suppress progress display',
-    )
-    parser.add_argument(
-        '--version', action='version', version=f"ashlar {VERSION}"
-    )
+    parser.add_argument("--version", action="version", version=f"ashlar {VERSION}")
     args = parser.parse_args(argv[1:])
 
     configure_terminal()
@@ -157,15 +211,10 @@ def main(argv=sys.argv):
             )
             return 1
         if not re.search(r"\.tiff?$", args.filename_format, re.IGNORECASE):
-            print_error(
-                f"Filename format does not end in .tif: {args.filename_format}"
-            )
+            print_error(f"Filename format does not end in .tif: {args.filename_format}")
             return 1
     if not output_path.is_dir():
-        print_error(
-            "Output location does not exist or is not a directory:"
-            f" {output_path}"
-        )
+        print_error("Output location does not exist or is not a directory:" f" {output_path}")
         return 1
     if re.search(r"\.ome\.tiff?$", args.filename_format, re.IGNORECASE):
         args.pyramid = True
@@ -178,8 +227,8 @@ def main(argv=sys.argv):
     if ffp_paths:
         if len(ffp_paths) not in (0, 1, len(filepaths)):
             print_error(
-                "Wrong number of flat-field profiles. Must be 1, or {}"
-                " (number of input files)".format(len(filepaths))
+                f"Wrong number of flat-field profiles. Must be 1, or {len(filepaths)}"
+                " (number of input files)"
             )
             return 1
         if len(ffp_paths) == 1:
@@ -189,44 +238,61 @@ def main(argv=sys.argv):
     if dfp_paths:
         if len(dfp_paths) not in (0, 1, len(filepaths)):
             print_error(
-                "Wrong number of dark-field profiles. Must be 1, or {}"
-                " (number of input files)".format(len(filepaths))
+                f"Wrong number of dark-field profiles. Must be 1, or {len(filepaths)}"
+                " (number of input files)"
             )
             return 1
         if len(dfp_paths) == 1:
             dfp_paths = dfp_paths * len(filepaths)
 
     aligner_args = {}
-    aligner_args['channel'] = args.align_channel
-    aligner_args['verbose'] = not args.quiet
-    aligner_args['max_shift'] = args.maximum_shift
+    aligner_args["channel"] = args.align_channel
+    aligner_args["verbose"] = not args.quiet
+    aligner_args["max_shift"] = args.maximum_shift
     aligner_args["alpha"] = args.stitch_alpha
     aligner_args["max_error"] = args.maximum_error
-    aligner_args['filter_sigma'] = args.filter_sigma
+    aligner_args["filter_sigma"] = args.filter_sigma
 
     mosaic_args = {}
     if args.output_channels:
-        mosaic_args['channels'] = args.output_channels
+        mosaic_args["channels"] = args.output_channels
     if args.pyramid:
-        mosaic_args['tile_size'] = args.tile_size
+        mosaic_args["tile_size"] = args.tile_size
     if args.quiet is False:
-        mosaic_args['verbose'] = True
-    mosaic_args['flip_mosaic_x'] = args.flip_mosaic_x
-    mosaic_args['flip_mosaic_y'] = args.flip_mosaic_y
+        mosaic_args["verbose"] = True
+    mosaic_args["flip_mosaic_x"] = args.flip_mosaic_x
+    mosaic_args["flip_mosaic_y"] = args.flip_mosaic_y
 
     try:
         if args.plates:
             return process_plates(
-                filepaths, output_path, args.filename_format, args.flip_x,
-                args.flip_y, ffp_paths, dfp_paths, args.barrel_correction,
-                aligner_args, mosaic_args, args.pyramid, args.quiet
+                filepaths,
+                output_path,
+                args.filename_format,
+                args.flip_x,
+                args.flip_y,
+                ffp_paths,
+                dfp_paths,
+                args.barrel_correction,
+                aligner_args,
+                mosaic_args,
+                args.pyramid,
+                args.quiet,
             )
         else:
             mosaic_path_format = str(output_path / args.filename_format)
             return process_single(
-                filepaths, mosaic_path_format, args.flip_x, args.flip_y,
-                ffp_paths, dfp_paths, args.barrel_correction, aligner_args,
-                mosaic_args, args.pyramid, args.quiet
+                filepaths,
+                mosaic_path_format,
+                args.flip_x,
+                args.flip_y,
+                ffp_paths,
+                dfp_paths,
+                args.barrel_correction,
+                aligner_args,
+                mosaic_args,
+                args.pyramid,
+                args.quiet,
             )
     except ProcessingError as e:
         print_error(str(e))
@@ -234,9 +300,18 @@ def main(argv=sys.argv):
 
 
 def process_single(
-    filepaths, output_path_format, flip_x, flip_y, ffp_paths, dfp_paths,
-    barrel_correction, aligner_args, mosaic_args, pyramid, quiet,
-    plate_well=None
+    filepaths,
+    output_path_format,
+    flip_x,
+    flip_y,
+    ffp_paths,
+    dfp_paths,
+    barrel_correction,
+    aligner_args,
+    mosaic_args,
+    pyramid,
+    quiet,
+    plate_well=None,
 ):
 
     mosaic_args = mosaic_args.copy()
@@ -249,38 +324,38 @@ def process_single(
 
     if not quiet:
         print("Stitching and registering input images")
-        print('Cycle 0:')
-        print('    reading %s' % filepaths[0])
+        print("Cycle 0:")
+        print("    reading %s" % filepaths[0])
     reader = build_reader(filepaths[0], barrel_correction, plate_well=plate_well)
     process_axis_flip(reader, flip_x, flip_y)
     ea_args = aligner_args.copy()
     for arg in ("alpha", "max_error"):
         aligner_args.pop(arg, None)
     if len(filepaths) == 1:
-        ea_args['do_make_thumbnail'] = False
+        ea_args["do_make_thumbnail"] = False
     edge_aligner = reg.EdgeAligner(reader, **ea_args)
     edge_aligner.run()
     mshape = edge_aligner.mosaic_shape
     mosaic_args_final = mosaic_args.copy()
     if ffp_paths:
-        mosaic_args_final['ffp_path'] = ffp_paths[0]
+        mosaic_args_final["ffp_path"] = ffp_paths[0]
     if dfp_paths:
-        mosaic_args_final['dfp_path'] = dfp_paths[0]
+        mosaic_args_final["dfp_path"] = dfp_paths[0]
     mosaics.append(reg.Mosaic(edge_aligner, mshape, **mosaic_args_final))
 
     for cycle, filepath in enumerate(filepaths[1:], 1):
         if not quiet:
-            print('Cycle %d:' % cycle)
-            print('    reading %s' % filepath)
+            print("Cycle %d:" % cycle)
+            print("    reading %s" % filepath)
         reader = build_reader(filepath, barrel_correction, plate_well=plate_well)
         process_axis_flip(reader, flip_x, flip_y)
         layer_aligner = reg.LayerAligner(reader, edge_aligner, **aligner_args)
         layer_aligner.run()
         mosaic_args_final = mosaic_args.copy()
         if ffp_paths:
-            mosaic_args_final['ffp_path'] = ffp_paths[cycle]
+            mosaic_args_final["ffp_path"] = ffp_paths[cycle]
         if dfp_paths:
-            mosaic_args_final['dfp_path'] = dfp_paths[cycle]
+            mosaic_args_final["dfp_path"] = dfp_paths[cycle]
         mosaics.append(reg.Mosaic(layer_aligner, mshape, **mosaic_args_final))
 
     # Disable reader caching to save memory during mosaicing and writing.
@@ -290,17 +365,25 @@ def process_single(
         print()
         print(f"Merging tiles and writing to {output_path_format}")
     writer_class = reg.PyramidWriter if pyramid else reg.TiffListWriter
-    writer = writer_class(
-        mosaics, output_path_format, verbose=not quiet, **writer_args
-    )
+    writer = writer_class(mosaics, output_path_format, verbose=not quiet, **writer_args)
     writer.run()
 
     return 0
 
 
 def process_plates(
-    filepaths, output_path, filename_format, flip_x, flip_y, ffp_paths,
-    dfp_paths, barrel_correction, aligner_args, mosaic_args, pyramid, quiet
+    filepaths,
+    output_path,
+    filename_format,
+    flip_x,
+    flip_y,
+    ffp_paths,
+    dfp_paths,
+    barrel_correction,
+    aligner_args,
+    mosaic_args,
+    pyramid,
+    quiet,
 ):
 
     temp_reader = build_reader(filepaths[0])
@@ -311,9 +394,9 @@ def process_plates(
         return 1
 
     for p, plate_name in enumerate(metadata.plate_names):
-        print("Plate {} ({})\n==========\n".format(p, plate_name))
+        print(f"Plate {p} ({plate_name})\n==========\n")
         for w, well_name in enumerate(metadata.well_names[p]):
-            print("Well {}\n-----".format(well_name))
+            print(f"Well {well_name}\n-----")
             if len(metadata.plate_well_series[p][w]) > 0:
                 plate_path = output_path / plate_name
                 if pyramid:
@@ -323,9 +406,18 @@ def process_plates(
                 out_file_path.parent.mkdir(parents=True, exist_ok=True)
                 mosaic_path_format = str(out_file_path)
                 process_single(
-                    filepaths, mosaic_path_format, flip_x, flip_y,
-                    ffp_paths, dfp_paths, barrel_correction, aligner_args,
-                    mosaic_args, pyramid, quiet, plate_well=(p, w)
+                    filepaths,
+                    mosaic_path_format,
+                    flip_x,
+                    flip_y,
+                    ffp_paths,
+                    dfp_paths,
+                    barrel_correction,
+                    aligner_args,
+                    mosaic_args,
+                    pyramid,
+                    quiet,
+                    plate_well=(p, w),
                 )
             else:
                 print("Skipping -- No images found.")
@@ -345,11 +437,12 @@ def process_axis_flip(reader, flip_x, flip_y):
 
 
 readers = {
-    'filepattern': FilePatternReader,
-    'fileseries': FileSeriesReader,
-    'bioformats': BioformatsReader,
-    'zen': ZenReader,
+    "filepattern": FilePatternReader,
+    "fileseries": FileSeriesReader,
+    "bioformats": BioformatsReader,
+    "zen": ZenReader,
 }
+
 
 # This is a short-term hack to provide a way to specify alternate reader
 # classes and pass specific args to them.
@@ -357,21 +450,18 @@ def build_reader(path, barrel_correction=0, plate_well=None):
     # Default to BioformatsReader if name not specified.
     reader_class = BioformatsReader
     kwargs = {}
-    match = re.match(
-        r'(?P<reader>\w+)\|(?P<path>.*?)(\|(?P<kwargs>.*))?$', path
-    )
+    match = re.match(r"(?P<reader>\w+)\|(?P<path>.*?)(\|(?P<kwargs>.*))?$", path)
     if match:
-        path = match.group('path')
-        reader_name = match.group('reader')
+        path = match.group("path")
+        reader_name = match.group("reader")
         reader_class = readers.get(reader_name)
         if reader_class is None:
-            raise ProcessingError("Unknown reader: {}".format(reader_name))
-        kwargs.update(parse_kwargs_string(match.group('kwargs')))
+            raise ProcessingError(f"Unknown reader: {reader_name}")
+        kwargs.update(parse_kwargs_string(match.group("kwargs")))
     if plate_well is not None:
         if not issubclass(reader_class, PlateReader):
             raise ProcessingError(
-                "The %s reader does not support plate/well processing"
-                % reader_class.__name__
+                "The %s reader does not support plate/well processing" % reader_class.__name__
             )
         kwargs.update(plate=plate_well[0], well=plate_well[1])
     reader = reader_class(path, **kwargs)
@@ -383,8 +473,8 @@ def build_reader(path, barrel_correction=0, plate_well=None):
 def parse_kwargs_string(string):
     kwargs = {}
     if string is not None:
-        for piece in string.split('|'):
-            name, value = piece.split('=')
+        for piece in string.split("|"):
+            name, value = piece.split("=")
             # Optimistically parse as float.
             try:
                 value = float(value)
@@ -442,5 +532,5 @@ class ProcessingError(RuntimeError):
     pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

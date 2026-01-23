@@ -1,8 +1,10 @@
 import pathlib
-from urllib.parse import unquote as urllib_unquote
 import xml.etree.ElementTree
+from urllib.parse import unquote as urllib_unquote
+
 import numpy as np
 import skimage.io
+
 from . import reg
 
 
@@ -19,15 +21,15 @@ class ZenMetadata(reg.Metadata):
         tile_size = None
         self._num_channels = 0
         self.image_paths = {}
-        for image in tree.findall('Image'):
-            path = urllib_unquote(image.findtext('Filename'))
-            bounds = image.find('Bounds')
-            series = int(bounds.attrib['StartM'])
-            channel = int(bounds.attrib['StartC'])
-            start_x = int(bounds.attrib['StartX'])
-            start_y = int(bounds.attrib['StartY'])
-            size_x = int(bounds.attrib['SizeX'])
-            size_y = int(bounds.attrib['SizeY'])
+        for image in tree.findall("Image"):
+            path = urllib_unquote(image.findtext("Filename"))
+            bounds = image.find("Bounds")
+            series = int(bounds.attrib["StartM"])
+            channel = int(bounds.attrib["StartC"])
+            start_x = int(bounds.attrib["StartX"])
+            start_y = int(bounds.attrib["StartY"])
+            size_x = int(bounds.attrib["SizeX"])
+            size_y = int(bounds.attrib["SizeY"])
             position = start_y, start_x
             size = size_y, size_x
             if channel == 0:

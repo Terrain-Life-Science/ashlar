@@ -10,7 +10,7 @@ def _barrel_mapping(xy, center, k):
     # The warp mapping function defines the INVERSE map to apply, which in the
     # case of a distortion correction is the FORWARD map of the distortion
     # itself. See Fitzgibbon 2001 eq 1 for details.
-    r2 = x ** 2 + y ** 2
+    r2 = x**2 + y**2
     f = 1 + k * r2
     xy[..., 0] = x * f + x0
     xy[..., 1] = y * f + y0
@@ -90,6 +90,14 @@ def barrel_correction(
 
     warp_args = {"center": center, "k": k}
 
-    return warp(image, _barrel_mapping, map_args=warp_args,
-                output_shape=output_shape, order=order, mode=mode, cval=cval,
-                clip=clip, preserve_range=preserve_range)
+    return warp(
+        image,
+        _barrel_mapping,
+        map_args=warp_args,
+        output_shape=output_shape,
+        order=order,
+        mode=mode,
+        cval=cval,
+        clip=clip,
+        preserve_range=preserve_range,
+    )

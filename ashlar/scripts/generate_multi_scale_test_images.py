@@ -16,25 +16,25 @@ memory is available. Generation may be slow due to swapping to disk if memory is
 """
 
 import pathlib
-import sys
 import platform
-from ashlar.scripts.generate_synthetic_test_images import (
-    generate_synthetic_cycle
-)
+import sys
+
+from ashlar.scripts.generate_synthetic_test_images import generate_synthetic_cycle
 
 
 def get_available_memory_gb():
     """
     Get available system memory in GB (works on Windows and Linux).
-    
+
     Returns
     -------
     float
         Available memory in GB, or None if unable to determine
     """
     try:
-        if platform.system() == 'Windows':
+        if platform.system() == "Windows":
             import ctypes
+
             class MEMORYSTATUSEX(ctypes.Structure):
                 _fields_ = [
                     ("dwLength", ctypes.c_ulong),
@@ -47,31 +47,28 @@ def get_available_memory_gb():
                     ("ullAvailVirtual", ctypes.c_ulonglong),
                     ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
                 ]
-            
+
             mem_status = MEMORYSTATUSEX()
             mem_status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem_status))
             return mem_status.ullAvailPhys / (1024**3)
         else:
             # Linux/Mac
-            import os
-            with open('/proc/meminfo', 'r') as f:
+
+            with open("/proc/meminfo") as f:
                 for line in f:
-                    if 'MemAvailable' in line:
+                    if "MemAvailable" in line:
                         return float(line.split()[1]) / (1024**2)
     except Exception:
         return None
 
 
 def generate_multi_scale_images(
-    base_output_dir='.',
-    pixel_size=0.325,
-    num_pyramid_levels=4,
-    shifts=None
+    base_output_dir=".", pixel_size=0.325, num_pyramid_levels=4, shifts=None
 ):
     """
     Generate test images at multiple scales (1x, 2x, 4x, 8x, 16x).
-    
+
     Parameters
     ----------
     base_output_dir : str or Path
@@ -84,12 +81,12 @@ def generate_multi_scale_images(
         Shifts for each cycle as [(dy0, dx0), (dy1, dx1), (dy2, dx2)]
         Format: (dy, dx) where dy is row shift, dx is column shift
         Default: [(0.0, 0.0), (-1.8, 2.5), (5.2, 8.3)]
-    
+
     Returns
     -------
     dict
         Dictionary mapping scale factors to output directories
-    
+
     Note
     ----
     Large scales (8x, 16x) require significant memory:
@@ -101,88 +98,94 @@ def generate_multi_scale_images(
         # Default shifts: Cycle 0: (0, 0), Cycle 1: (dy=-1.8, dx=2.5), Cycle 2: (dy=5.2, dx=8.3)
         # Note: shift format is (dy, dx) to match generate_synthetic_cycle() expectations
         shifts = [
-            (0.0, 0.0),      # Cycle 0: (dy, dx) - reference
-            (-1.8, 2.5),     # Cycle 1: (dy, dx)
-            (5.2, 8.3),      # Cycle 2: (dy, dx)
+            (0.0, 0.0),  # Cycle 0: (dy, dx) - reference
+            (-1.8, 2.5),  # Cycle 1: (dy, dx)
+            (5.2, 8.3),  # Cycle 2: (dy, dx)
         ]
-    
+
     base_output_dir = pathlib.Path(base_output_dir)
-    
+
     # Create synthetic_test_images directory if it doesn't exist
-    synthetic_test_dir = base_output_dir / 'synthetic_test_images'
+    synthetic_test_dir = base_output_dir / "synthetic_test_images"
     synthetic_test_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Define scales: (scale_factor, width, height, output_dir_suffix)
     scales = [
-        (1.0, 2048, 2048, '1x'),
-        (2.0, 4096, 4096, '2x'),
-        (4.0, 8192, 8192, '4x'),
-        (8.0, 16384, 16384, '8x'),
-        (16.0, 32768, 32768, '16x'),
+        (1.0, 2048, 2048, "1x"),
+        (2.0, 4096, 4096, "2x"),
+        (4.0, 8192, 8192, "4x"),
+        (8.0, 16384, 16384, "8x"),
+        (16.0, 32768, 32768, "16x"),
     ]
-    
+
     output_dirs = {}
-    
+
     print("=" * 70)
     print("Generating Multi-Scale Synthetic Pyramidal OME-TIFF Test Images")
     print("=" * 70)
     print(f"Output directory: {synthetic_test_dir}")
     print(f"Pixel size: {pixel_size} µm")
     print(f"Pyramid levels: {num_pyramid_levels}")
-    print(f"Channels per cycle: 3 (DAPI + 2 fluorescence)")
-    print(f"Shifts (constant in pixels across all scales):")
+    print("Channels per cycle: 3 (DAPI + 2 fluorescence)")
+    print("Shifts (constant in pixels across all scales):")
     for i, shift in enumerate(shifts):
         print(f"  Cycle {i}: dy={shift[0]:.2f}, dx={shift[1]:.2f} pixels")
     print()
-    
+
     # Generate images for each scale
     for scale_factor, width, height, dir_suffix in scales:
         output_dir = synthetic_test_dir / dir_suffix
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dirs[scale_factor] = output_dir
-        
+
         print("-" * 70)
         print(f"Generating {scale_factor}x scale images ({width}×{height} pixels)")
         print("-" * 70)
-        
+
         # Estimate memory requirements and check available memory
         # Base image: width × height × 3 channels × 2 bytes (uint16)
         base_image_memory_gb = (width * height * 3 * 2) / (1024**3)
         # Peak memory: base image × 1.25 (accounts for temporary arrays during processing)
         peak_memory_gb = base_image_memory_gb * 1.25
-        
+
         # Check available memory and warn if insufficient
         available_memory_gb = get_available_memory_gb()
         if available_memory_gb is not None:
-            print(f"Memory check:")
+            print("Memory check:")
             print(f"  Available: {available_memory_gb:.2f} GB")
             print(f"  Estimated peak: {peak_memory_gb:.2f} GB per cycle")
-            
+
             # Memory thresholds based on scale
             if scale_factor >= 16.0:  # 16x scale
                 required_memory_gb = 10.0
                 if available_memory_gb < required_memory_gb:
                     print(f"  WARNING: Insufficient memory for {scale_factor}x scale!")
-                    print(f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)")
-                    print(f"  Generation may be very slow due to swapping to disk.")
-                    print(f"  Consider closing other applications or skipping this scale.")
+                    print(
+                        f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)"
+                    )
+                    print("  Generation may be very slow due to swapping to disk.")
+                    print("  Consider closing other applications or skipping this scale.")
                     print()
             elif scale_factor >= 8.0:  # 8x scale
                 required_memory_gb = 3.0
                 if available_memory_gb < required_memory_gb:
                     print(f"  WARNING: Low memory for {scale_factor}x scale!")
-                    print(f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)")
-                    print(f"  Generation may be slow due to swapping to disk.")
+                    print(
+                        f"  Recommended: {required_memory_gb:.1f} GB free (have {available_memory_gb:.2f} GB)"
+                    )
+                    print("  Generation may be slow due to swapping to disk.")
                     print()
             else:
                 # For smaller scales, just show info
                 if available_memory_gb < peak_memory_gb * 1.5:
-                    print(f"  Note: Available memory is close to estimated peak usage.")
+                    print("  Note: Available memory is close to estimated peak usage.")
                     print()
         else:
-            print(f"  Note: Unable to check available memory (estimated peak: {peak_memory_gb:.2f} GB per cycle)")
+            print(
+                f"  Note: Unable to check available memory (estimated peak: {peak_memory_gb:.2f} GB per cycle)"
+            )
             print()
-        
+
         # Generate each cycle
         for cycle_num, shift in enumerate(shifts):
             output_path = output_dir / f"cycle_{cycle_num:02d}.ome.tif"
@@ -192,12 +195,12 @@ def generate_multi_scale_images(
                 base_shape=(height, width),
                 shift=shift,
                 pixel_size=pixel_size,
-                num_pyramid_levels=num_pyramid_levels
+                num_pyramid_levels=num_pyramid_levels,
             )
-        
+
         print(f"[OK] {scale_factor}x scale complete: {output_dir}")
         print()
-    
+
     print("=" * 70)
     print("[SUCCESS] All multi-scale test images generated!")
     print("=" * 70)
@@ -207,16 +210,16 @@ def generate_multi_scale_images(
     print()
     print("You can now test registration algorithms on these images.")
     print("The known shifts can be used to validate registration accuracy.")
-    
+
     return output_dirs
 
 
 def main(argv=sys.argv):
     """Main entry point for multi-scale image generation."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(
-        description='Generate synthetic pyramidal OME-TIFF test images at multiple scales (1x, 2x, 4x, 8x, 16x)',
+        description="Generate synthetic pyramidal OME-TIFF test images at multiple scales (1x, 2x, 4x, 8x, 16x)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -234,45 +237,48 @@ Examples:
   
   # Generate with more pyramid levels
   python -m ashlar.scripts.generate_multi_scale_test_images --pyramid-levels 5
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        '--base-dir', '-b',
+        "--base-dir",
+        "-b",
         type=str,
-        default='.',
-        help='Base directory for output (default: current directory). Creates synthetic_test_images/ with subdirectories: 1x/, 2x/, 4x/, 8x/, 16x/'
+        default=".",
+        help="Base directory for output (default: current directory). Creates synthetic_test_images/ with subdirectories: 1x/, 2x/, 4x/, 8x/, 16x/",
     )
-    
+
     parser.add_argument(
-        '--pixel-size', '-p',
+        "--pixel-size",
+        "-p",
         type=float,
         default=0.325,
-        help='Pixel size in micrometers (default: 0.325, matching Evos S1000)'
+        help="Pixel size in micrometers (default: 0.325, matching Evos S1000)",
     )
-    
+
     parser.add_argument(
-        '--pyramid-levels', '-l',
+        "--pyramid-levels",
+        "-l",
         type=int,
         default=4,
-        help='Number of pyramid levels to generate (default: 4)'
+        help="Number of pyramid levels to generate (default: 4)",
     )
-    
+
     parser.add_argument(
-        '--shifts',
+        "--shifts",
         type=float,
         nargs=6,
-        metavar=('DX0', 'DY0', 'DX1', 'DY1', 'DX2', 'DY2'),
+        metavar=("DX0", "DY0", "DX1", "DY1", "DX2", "DY2"),
         default=[0.0, 0.0, 2.5, -1.8, 8.3, 5.2],
-        help='Shifts for each cycle as dx0 dy0 dx1 dy1 dx2 dy2 (default: 0.0 0.0 2.5 -1.8 8.3 5.2)'
+        help="Shifts for each cycle as dx0 dy0 dx1 dy1 dx2 dy2 (default: 0.0 0.0 2.5 -1.8 8.3 5.2)",
     )
-    
+
     args = parser.parse_args(argv[1:])
-    
+
     # Parse shifts
     if len(args.shifts) != 6:
         parser.error("--shifts requires exactly 6 values (dx0 dy0 dx1 dy1 dx2 dy2)")
-    
+
     # Note: shift format is (dy, dx) to match generate_synthetic_cycle() expectations
     # args.shifts format is [dx0, dy0, dx1, dy1, dx2, dy2], so we swap to create (dy, dx)
     shifts = [
@@ -280,18 +286,19 @@ Examples:
         (args.shifts[3], args.shifts[2]),  # Cycle 1: (dy, dx) from (dx1, dy1)
         (args.shifts[5], args.shifts[4]),  # Cycle 2: (dy, dx) from (dx2, dy2)
     ]
-    
+
     try:
         generate_multi_scale_images(
             base_output_dir=args.base_dir,
             pixel_size=args.pixel_size,
             num_pyramid_levels=args.pyramid_levels,
-            shifts=shifts
+            shifts=shifts,
         )
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         return 1
 

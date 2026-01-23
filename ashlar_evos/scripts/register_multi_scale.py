@@ -7,26 +7,26 @@ skip larger scales if memory is limited.
 """
 
 import argparse
-import pathlib
-import sys
-import json
 import glob
+import json
+import pathlib
 from typing import Dict, List, Optional
-from ashlar_evos.pipeline import EvosRegistrationPipeline
-from ashlar_evos.performance import PerformanceMonitor
+
 from ashlar_evos.cloud_utils import calculate_optimal_pyramid_level
-from ashlar_evos.logging_config import setup_logging, get_logger
+from ashlar_evos.logging_config import get_logger, setup_logging
+from ashlar_evos.performance import PerformanceMonitor
+from ashlar_evos.pipeline import EvosRegistrationPipeline
 
 
 def find_cycle_files(input_dir: pathlib.Path) -> List[pathlib.Path]:
     """
     Find cycle files in the input directory.
-    
+
     Parameters
     ----------
     input_dir : Path
         Directory containing cycle files
-        
+
     Returns
     -------
     list of Path
@@ -36,15 +36,15 @@ def find_cycle_files(input_dir: pathlib.Path) -> List[pathlib.Path]:
     # Use resolve() to handle Windows path issues with glob
     pattern = str((input_dir / "cycle_*.ome.tif").resolve())
     cycle_files = sorted([pathlib.Path(f) for f in glob.glob(pattern)])
-    
+
     # If glob didn't find files, try listing directory directly
     if not cycle_files:
         pattern = str(input_dir / "cycle_*.ome.tif")
         cycle_files = sorted([pathlib.Path(f) for f in glob.glob(pattern)])
-    
+
     if not cycle_files:
         raise FileNotFoundError(f"No cycle files found in {input_dir}")
-    
+
     return cycle_files
 
 
@@ -57,17 +57,17 @@ def run_registration_for_scale(
     coarse_level: int = 3,
     tile_size: int = 4096,
     tile_overlap: int = 512,
-    transform_type: str = 'similarity',
+    transform_type: str = "similarity",
     num_workers: Optional[int] = None,
     verbose: bool = True,
     coarse_only: bool = False,
     alignment_only: bool = False,
-    coarse_mode: str = 'phase_correlation',
-    centroid_config: Optional[Dict] = None
+    coarse_mode: str = "phase_correlation",
+    centroid_config: Optional[Dict] = None,
 ) -> Dict:
     """
     Run registration pipeline for a single scale.
-    
+
     Parameters
     ----------
     input_dir : Path
@@ -100,13 +100,13 @@ def run_registration_for_scale(
         Coarse alignment mode: "phase_correlation" or "centroid"
     centroid_config : dict, optional
         Configuration for centroid-based alignment
-        
+
     Returns
     -------
     dict
         Report dictionary for this scale
     """
-    logger = get_logger('ashlar_evos.scripts.register_multi_scale')
+    logger = get_logger("ashlar_evos.scripts.register_multi_scale")
     if verbose:
         print()
         print("=" * 70)
@@ -116,34 +116,34 @@ def run_registration_for_scale(
         print(f"  Output directory: {output_dir}")
         print("=" * 70)
         print()
-    
+
     # Find cycle files
     cycle_files = find_cycle_files(input_dir)
-    
+
     if verbose:
         print(f"Found {len(cycle_files)} cycle files:")
         for f in cycle_files:
             print(f"  {f.name}")
         print()
-    
+
     # Use adaptive pyramid level if image_size is provided
     # Calculate optimal level BEFORE creating pipeline to avoid validation errors
     actual_coarse_level = coarse_level
     if image_size is not None:
         try:
             actual_coarse_level = calculate_optimal_pyramid_level(
-                image_size['width'],
-                image_size['height'],
-                cycle_files[0]
+                image_size["width"], image_size["height"], cycle_files[0]
             )
             if verbose:
-                print(f"  Adaptive pyramid level: {actual_coarse_level} (requested: {coarse_level})")
+                print(
+                    f"  Adaptive pyramid level: {actual_coarse_level} (requested: {coarse_level})"
+                )
                 print()
         except Exception as e:
             if verbose:
                 logger.warning(f"Could not calculate optimal pyramid level: {e}")
                 print()
-    
+
     # Create pipeline with scale metadata
     # Use the calculated optimal level to avoid validation errors
     pipeline = EvosRegistrationPipeline(
@@ -161,47 +161,45 @@ def run_registration_for_scale(
         scale_factor=scale_factor,
         image_size=image_size,
         coarse_mode=coarse_mode,
-        centroid_config=centroid_config
+        centroid_config=centroid_config,
     )
-    
+
     # Run pipeline
     if alignment_only:
         # Alignment-only mode: output transforms.json, skip image writing
-        transforms_path = output_dir / 'transforms.json'
+        transforms_path = output_dir / "transforms.json"
         result = pipeline.run_alignment_only(
-            output_path=transforms_path,
-            report_path=None  # We'll collect the report manually
+            output_path=transforms_path, report_path=None  # We'll collect the report manually
         )
         output_files = {}  # No image files in alignment-only mode
     else:
         # Full pipeline: write aligned images
         output_files = pipeline.run_full_pipeline(
-            output_dir,
-            report_path=None  # We'll collect the report manually
+            output_dir, report_path=None  # We'll collect the report manually
         )
-    
+
     # Get report from performance monitor (includes scale metadata)
     report = pipeline.performance_monitor.generate_report(
-        scale_factor=scale_factor,
-        image_size=image_size
+        scale_factor=scale_factor, image_size=image_size
     )
-    
+
     # Add directory metadata for traceability
-    report['input_directory'] = str(input_dir)
-    report['output_directory'] = str(output_dir)
-    report['alignment_only'] = alignment_only
-    
+    report["input_directory"] = str(input_dir)
+    report["output_directory"] = str(output_dir)
+    report["alignment_only"] = alignment_only
+
     # Clean up pipeline to free memory before processing next scale
     # This is important for multi-scale runs to prevent memory accumulation
     del pipeline
     import gc
+
     gc.collect()
-    
+
     if verbose:
         print()
         print(f"[OK] {scale_factor}x scale registration complete")
         print()
-    
+
     return report
 
 
@@ -212,18 +210,18 @@ def generate_multi_scale_report(
     coarse_level: int = 3,
     tile_size: int = 4096,
     tile_overlap: int = 512,
-    transform_type: str = 'similarity',
+    transform_type: str = "similarity",
     num_workers: Optional[int] = None,
     verbose: bool = True,
     coarse_only: bool = False,
     alignment_only: bool = False,
     max_scale: float = 16.0,
-    coarse_mode: str = 'phase_correlation',
-    centroid_config: Optional[Dict] = None
+    coarse_mode: str = "phase_correlation",
+    centroid_config: Optional[Dict] = None,
 ) -> Dict:
     """
     Run registration on all scales (1x, 2x, 4x, 8x, 16x) and generate combined report.
-    
+
     Parameters
     ----------
     base_input_dir : Path
@@ -250,7 +248,7 @@ def generate_multi_scale_report(
         Output only alignment transforms (JSON), skip writing aligned images
     max_scale : float
         Maximum scale to process (default: 16.0). Scales larger than this will be skipped.
-        
+
     Returns
     -------
     dict
@@ -259,16 +257,16 @@ def generate_multi_scale_report(
     # Define scales (now inside synthetic_test_images/ directory)
     # Organize outputs into output/ subdirectory
     scales = [
-        (1.0, 2048, 2048, 'synthetic_test_images/1x', 'output/aligned_output_1x'),
-        (2.0, 4096, 4096, 'synthetic_test_images/2x', 'output/aligned_output_2x'),
-        (4.0, 8192, 8192, 'synthetic_test_images/4x', 'output/aligned_output_4x'),
-        (8.0, 16384, 16384, 'synthetic_test_images/8x', 'output/aligned_output_8x'),
-        (16.0, 32768, 32768, 'synthetic_test_images/16x', 'output/aligned_output_16x'),
+        (1.0, 2048, 2048, "synthetic_test_images/1x", "output/aligned_output_1x"),
+        (2.0, 4096, 4096, "synthetic_test_images/2x", "output/aligned_output_2x"),
+        (4.0, 8192, 8192, "synthetic_test_images/4x", "output/aligned_output_4x"),
+        (8.0, 16384, 16384, "synthetic_test_images/8x", "output/aligned_output_8x"),
+        (16.0, 32768, 32768, "synthetic_test_images/16x", "output/aligned_output_16x"),
     ]
-    
+
     runs = []
-    
-    logger = get_logger('ashlar_evos.scripts.register_multi_scale')
+
+    logger = get_logger("ashlar_evos.scripts.register_multi_scale")
     if verbose:
         print()
         print("=" * 70)
@@ -278,9 +276,9 @@ def generate_multi_scale_report(
         print("=" * 70)
         print(f"Base input directory: {base_input_dir}")
         print(f"Base output directory: {base_output_dir}")
-        print(f"Scales: 1x, 2x, 4x, 8x, 16x")
+        print("Scales: 1x, 2x, 4x, 8x, 16x")
         print()
-    
+
     # Run registration for each scale (up to max_scale)
     for scale_factor, width, height, input_dir_suffix, output_dir_suffix in scales:
         # Skip scales larger than max_scale
@@ -288,23 +286,23 @@ def generate_multi_scale_report(
             if verbose:
                 print(f"[SKIP] Scale {scale_factor}x exceeds max_scale={max_scale}")
             continue
-        
+
         input_dir = base_input_dir / input_dir_suffix
         output_dir = base_output_dir / output_dir_suffix
-        
+
         if not input_dir.exists():
             if verbose:
                 print(f"[SKIP] Input directory not found: {input_dir}")
-                print(f"       Run generate_multi_scale_test_images first")
+                print("       Run generate_multi_scale_test_images first")
             logger.warning(f"Input directory not found: {input_dir}")
             continue
-        
+
         try:
             report = run_registration_for_scale(
                 input_dir=input_dir,
                 output_dir=output_dir,
                 scale_factor=scale_factor,
-                image_size={'width': width, 'height': height},
+                image_size={"width": width, "height": height},
                 pixel_size=pixel_size,
                 coarse_level=coarse_level,
                 tile_size=tile_size,
@@ -315,19 +313,19 @@ def generate_multi_scale_report(
                 coarse_only=coarse_only,
                 alignment_only=alignment_only,
                 coarse_mode=coarse_mode,
-                centroid_config=centroid_config
+                centroid_config=centroid_config,
             )
             runs.append(report)
         except Exception as e:
             logger.error(f"Failed to process {scale_factor}x scale: {e}", exc_info=True)
             continue
-    
+
     if not runs:
         raise RuntimeError("No successful registration runs completed")
-    
+
     # Create combined report using PerformanceMonitor method
     combined_report = PerformanceMonitor.generate_multi_run_report(runs)
-    
+
     if verbose:
         print()
         print("=" * 70)
@@ -335,16 +333,18 @@ def generate_multi_scale_report(
         print("=" * 70)
         print(f"Successfully processed {len(runs)} scales:")
         for run in runs:
-            print(f"  {run['scale_factor']}x: {run['image_size']['width']}×{run['image_size']['height']} pixels")
+            print(
+                f"  {run['scale_factor']}x: {run['image_size']['width']}×{run['image_size']['height']} pixels"
+            )
         print()
-    
+
     return combined_report
 
 
 def main(argv=None):
     """Main entry point for multi-scale registration."""
     parser = argparse.ArgumentParser(
-        description='Run registration pipeline on multi-scale test images (1x, 2x, 4x, 8x, 16x)',
+        description="Run registration pipeline on multi-scale test images (1x, 2x, 4x, 8x, 16x)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -365,182 +365,182 @@ Examples:
   
   # Combine coarse-only with alignment-only for fastest possible alignment
   python -m ashlar_evos.scripts.register_multi_scale --base-input-dir . --base-output-dir . --coarse-only --alignment-only
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        '--base-input-dir', '-i',
+        "--base-input-dir",
+        "-i",
         type=pathlib.Path,
         required=True,
-        help='Base directory containing synthetic_test_images/ with scale subdirectories (1x/, 2x/, 4x/, 8x/, 16x/)'
+        help="Base directory containing synthetic_test_images/ with scale subdirectories (1x/, 2x/, 4x/, 8x/, 16x/)",
     )
-    
+
     parser.add_argument(
-        '--base-output-dir', '-o',
+        "--base-output-dir",
+        "-o",
         type=pathlib.Path,
         required=True,
-        help='Base directory for outputs. Creates output/ subdirectory with aligned_output_1x/, _2x/, _4x/, _8x/, _16x/ and logs/ subdirectory'
+        help="Base directory for outputs. Creates output/ subdirectory with aligned_output_1x/, _2x/, _4x/, _8x/, _16x/ and logs/ subdirectory",
     )
-    
+
     parser.add_argument(
-        '--max-scale',
+        "--max-scale",
         type=float,
         default=16.0,
         choices=[1.0, 2.0, 4.0, 8.0, 16.0],
-        help='Maximum scale to process (default: 16.0). Use to skip larger scales if memory is limited.'
+        help="Maximum scale to process (default: 16.0). Use to skip larger scales if memory is limited.",
     )
-    
+
     parser.add_argument(
-        '--report', '-R',
+        "--report",
+        "-R",
         type=pathlib.Path,
         default=None,
-        help='Path to save combined JSON report (default: reports/report_multi_scale.json in base-output-dir)'
+        help="Path to save combined JSON report (default: reports/report_multi_scale.json in base-output-dir)",
     )
-    
+
     parser.add_argument(
-        '--pixel-size', '-p',
+        "--pixel-size",
+        "-p",
         type=float,
         default=0.325,
-        help='Pixel size in micrometers (default: 0.325)'
+        help="Pixel size in micrometers (default: 0.325)",
     )
-    
+
     parser.add_argument(
-        '--coarse-level', '-c',
+        "--coarse-level",
+        "-c",
         type=int,
         default=3,
-        help='Pyramid level for coarse alignment (default: 3)'
+        help="Pyramid level for coarse alignment (default: 3)",
     )
-    
+
     parser.add_argument(
-        '--tile-size', '-t',
+        "--tile-size",
+        "-t",
         type=int,
         default=4096,
-        help='Tile size for fine registration (default: 4096)'
+        help="Tile size for fine registration (default: 4096)",
     )
-    
+
     parser.add_argument(
-        '--tile-overlap', '-l',
-        type=int,
-        default=512,
-        help='Overlap between tiles (default: 512)'
+        "--tile-overlap", "-l", type=int, default=512, help="Overlap between tiles (default: 512)"
     )
-    
+
     parser.add_argument(
-        '--transform-type',
-        choices=['similarity', 'affine'],
-        default='similarity',
-        help='Type of transform to fit (default: similarity)'
+        "--transform-type",
+        choices=["similarity", "affine"],
+        default="similarity",
+        help="Type of transform to fit (default: similarity)",
     )
-    
+
     parser.add_argument(
-        '--num-workers', '-w',
+        "--num-workers",
+        "-w",
         type=int,
         default=None,
-        help='Number of parallel workers (default: number of CPU cores)'
+        help="Number of parallel workers (default: number of CPU cores)",
     )
-    
+
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress messages")
+
     parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress progress messages'
+        "--coarse-only",
+        action="store_true",
+        help="Skip fine registration and use only coarse alignment",
     )
-    
+
     parser.add_argument(
-        '--coarse-only',
-        action='store_true',
-        help='Skip fine registration and use only coarse alignment'
+        "--alignment-only",
+        action="store_true",
+        help="Output only alignment transforms (JSON), skip writing aligned images. "
+        "This is much faster and uses minimal memory. Use with a viewer like napari "
+        "to apply transforms dynamically.",
     )
-    
+
     parser.add_argument(
-        '--alignment-only',
-        action='store_true',
-        help='Output only alignment transforms (JSON), skip writing aligned images. '
-             'This is much faster and uses minimal memory. Use with a viewer like napari '
-             'to apply transforms dynamically.'
+        "--coarse-mode",
+        choices=["phase_correlation", "centroid"],
+        default="phase_correlation",
+        help="Coarse alignment mode: phase_correlation (default) or centroid (DAPI-based nuclei registration)",
     )
-    
+
     parser.add_argument(
-        '--coarse-mode',
-        choices=['phase_correlation', 'centroid'],
-        default='phase_correlation',
-        help='Coarse alignment mode: phase_correlation (default) or centroid (DAPI-based nuclei registration)'
-    )
-    
-    parser.add_argument(
-        '--centroid-level',
+        "--centroid-level",
         type=int,
         default=None,
-        help='Pyramid level for centroid-based registration (default: auto-configured based on image size)'
+        help="Pyramid level for centroid-based registration (default: auto-configured based on image size)",
     )
-    
+
     parser.add_argument(
-        '--centroid-segmentation',
-        choices=['stardist', 'watershed'],
-        default='stardist',
-        help='Segmentation method for centroid registration: stardist (default) or watershed'
+        "--centroid-segmentation",
+        choices=["stardist", "watershed"],
+        default="stardist",
+        help="Segmentation method for centroid registration: stardist (default) or watershed",
     )
-    
+
     parser.add_argument(
-        '--centroid-max-iter',
+        "--centroid-max-iter",
         type=int,
         default=100,
-        help='Maximum ICP iterations for centroid registration (default: 100)'
+        help="Maximum ICP iterations for centroid registration (default: 100)",
     )
-    
+
     parser.add_argument(
-        '--centroid-threshold',
+        "--centroid-threshold",
         type=float,
         default=10.0,
-        help='Distance threshold for ICP matching in pixels (default: 10.0)'
+        help="Distance threshold for ICP matching in pixels (default: 10.0)",
     )
-    
+
     parser.add_argument(
-        '--centroid-min-matches',
+        "--centroid-min-matches",
         type=int,
         default=20,
-        help='Minimum number of centroid matches required (default: 20)'
+        help="Minimum number of centroid matches required (default: 20)",
     )
-    
+
     args = parser.parse_args(argv)
-    
+
     # Build centroid_config from CLI arguments if centroid mode is selected
     centroid_config = None
-    if args.coarse_mode == 'centroid':
+    if args.coarse_mode == "centroid":
         centroid_config = {
-            'segmentation_method': args.centroid_segmentation,
-            'icp_params': {
-                'max_iterations': args.centroid_max_iter,
-                'distance_threshold': args.centroid_threshold,
-                'min_matches': args.centroid_min_matches,
-                'convergence_threshold': 0.01
-            }
+            "segmentation_method": args.centroid_segmentation,
+            "icp_params": {
+                "max_iterations": args.centroid_max_iter,
+                "distance_threshold": args.centroid_threshold,
+                "min_matches": args.centroid_min_matches,
+                "convergence_threshold": 0.01,
+            },
         }
         if args.centroid_level is not None:
-            centroid_config['level'] = args.centroid_level
-    
+            centroid_config["level"] = args.centroid_level
+
     # Set up logging - organize logs into logs/ subdirectory
     if args.base_output_dir:
-        logs_dir = args.base_output_dir / 'logs'
+        logs_dir = args.base_output_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        log_file = logs_dir / 'multi_scale_registration.log'
+        log_file = logs_dir / "multi_scale_registration.log"
     else:
         log_file = None
     logger = setup_logging(
-        log_level='DEBUG' if not args.quiet else 'WARNING',
+        log_level="DEBUG" if not args.quiet else "WARNING",
         log_file=log_file,
-        verbose=not args.quiet
+        verbose=not args.quiet,
     )
-    logger = get_logger('ashlar_evos.scripts.register_multi_scale')
-    
+    logger = get_logger("ashlar_evos.scripts.register_multi_scale")
+
     # Determine report path
     if args.report is None:
         # Default to reports/ directory in base_output_dir
-        reports_dir = args.base_output_dir / 'reports'
+        reports_dir = args.base_output_dir / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
-        report_path = reports_dir / 'report_multi_scale.json'
+        report_path = reports_dir / "report_multi_scale.json"
     else:
         report_path = args.report
-    
+
     try:
         # Run multi-scale registration
         combined_report = generate_multi_scale_report(
@@ -557,24 +557,24 @@ Examples:
             alignment_only=args.alignment_only,
             max_scale=args.max_scale,
             coarse_mode=args.coarse_mode,
-            centroid_config=centroid_config
+            centroid_config=centroid_config,
         )
-        
+
         # Save combined report
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(report_path, 'w') as f:
+        with open(report_path, "w") as f:
             json.dump(combined_report, f, indent=2)
-        
+
         if not args.quiet:
             print(f"\n[OK] Combined report saved to: {report_path}")
         else:
             logger.info(f"Combined report saved to: {report_path}")
-        
+
         return 0
     except Exception as e:
         logger.error(f"Multi-scale registration failed: {e}", exc_info=True)
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     exit(main())

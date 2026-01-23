@@ -1,10 +1,10 @@
-import re
 import pathlib
+import re
+
 import numpy as np
-import skimage.io
+
 from . import reg
 from .fileseries import _read
-
 
 # Classes for reading datasets consisting of TIFF files with a naming pattern.
 # The pattern must include row and column as integers, and optionally a channel
@@ -31,10 +31,10 @@ class FilePatternMetadata(reg.Metadata):
     def _enumerate_tiles(self):
         # Translate a restricted subset of the "format" pattern language to
         # a matching regex with named capture.
-        pattern = self.pattern.replace('.', '\.')
-        pattern = pattern.replace('(', '\(')
-        pattern = pattern.replace(')', '\)')
-        regex = re.sub(r'{([^:}]+)(?:[^}]*)}', r'(?P<\1>.*?)', pattern)
+        pattern = self.pattern.replace(".", r"\.")
+        pattern = pattern.replace("(", r"\(")
+        pattern = pattern.replace(")", r"\)")
+        regex = re.sub(r"{([^:}]+)(?:[^}]*)}", r"(?P<\1>.*?)", pattern)
         rows = set()
         cols = set()
         channels = set()
@@ -43,9 +43,9 @@ class FilePatternMetadata(reg.Metadata):
             match = re.match(regex, p.name)
             if match:
                 gd = match.groupdict()
-                rows.add(int(gd['row']))
-                cols.add(int(gd['col']))
-                channels.add(gd.get('channel'))
+                rows.add(int(gd["row"]))
+                cols.add(int(gd["col"]))
+                channels.add(gd.get("channel"))
                 n += 1
         if n != len(rows) * len(cols) * len(channels):
             raise Exception("Tiles do not form a full rectangular grid")
@@ -56,8 +56,7 @@ class FilePatternMetadata(reg.Metadata):
         self.row_offset = min(rows)
         self.col_offset = min(cols)
         path = self.path / self.pattern.format(
-            row=self.row_offset, col=self.col_offset,
-            channel=self.channel_map[0]
+            row=self.row_offset, col=self.col_offset, channel=self.channel_map[0]
         )
         img = _read(path)
         if img.ndim not in (2, 3):
@@ -67,7 +66,7 @@ class FilePatternMetadata(reg.Metadata):
         self.multi_channel_tiles = False
         # Handle multi-channel tiles (pattern must not include channel).
         if len(self.channel_map) == 1 and img.ndim == 3:
-            self.channel_map = {c: None for c in range(img.shape[0])}
+            self.channel_map = dict.fromkeys(range(img.shape[0]))
             self.multi_channel_tiles = True
         self._num_channels = len(self.channel_map)
 
@@ -107,9 +106,7 @@ class FilePatternReader(reg.Reader):
         self.path = pathlib.Path(path)
         self.pattern = pattern
         self.overlap = overlap
-        self.metadata = FilePatternMetadata(
-            self.path, self.pattern, overlap, pixel_size
-        )
+        self.metadata = FilePatternMetadata(self.path, self.pattern, overlap, pixel_size)
 
     def read(self, series, c):
         path = self.path / self.filename(series, c)

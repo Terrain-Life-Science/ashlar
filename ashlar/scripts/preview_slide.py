@@ -1,13 +1,14 @@
-import warnings
-import sys
 import argparse
+import sys
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import matplotlib.text as mtext
 import numpy as np
 import skimage.transform
 import skimage.util
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.text as mtext
-from .. import reg, utils
+
+from .. import utils
 from ..scripts import ashlar as ascript
 
 
@@ -19,35 +20,42 @@ def main(argv=sys.argv):
             " display the resulting image."
         )
     )
+    parser.add_argument("input", help="Path to image (BioFormats supported formats only)")
+    parser.add_argument("-n", "--numbers", action="store_true", help="Display tile numbers")
+    parser.add_argument("-b", "--bounds", action="store_true", help="Display tile bounds")
     parser.add_argument(
-        "input", help="Path to image (BioFormats supported formats only)"
-    )
-    parser.add_argument(
-        "-n", "--numbers", action="store_true", help="Display tile numbers"
-    )
-    parser.add_argument(
-        "-b", "--bounds", action="store_true", help="Display tile bounds"
-    )
-    parser.add_argument(
-        "-c", "--channel", type=int, default=0,
+        "-c",
+        "--channel",
+        type=int,
+        default=0,
         help="Channel number to display; default: 0",
     )
     parser.add_argument(
-        "-d", "--downsample", metavar="FACTOR", type=float, default=10,
+        "-d",
+        "--downsample",
+        metavar="FACTOR",
+        type=float,
+        default=10,
         help="Downsample the image resolution by this factor for display (reduces"
         " memory requirements and improves performance); default: 10",
     )
     parser.add_argument(
-        "-l", "--log", action="store_true", help="Log-transform pixel intensities"
-        " (helps visualize dim images)",
+        "-l",
+        "--log",
+        action="store_true",
+        help="Log-transform pixel intensities" " (helps visualize dim images)",
     )
     parser.add_argument(
-        '--flip-x', default=False, action='store_true',
-        help='Flip tile positions left-to-right',
+        "--flip-x",
+        default=False,
+        action="store_true",
+        help="Flip tile positions left-to-right",
     )
     parser.add_argument(
-        '--flip-y', default=False, action='store_true',
-        help='Flip tile positions top-to-bottom',
+        "--flip-y",
+        default=False,
+        action="store_true",
+        help="Flip tile positions top-to-bottom",
     )
     args = parser.parse_args()
 
@@ -83,20 +91,18 @@ def main(argv=sys.argv):
     h, w = metadata.size * resolution_scale
     for i, (x, y) in enumerate(np.fliplr(positions)):
         if args.bounds:
-            rect = mpatches.Rectangle((x, y), w, h, color='black', fill=False)
+            rect = mpatches.Rectangle((x, y), w, h, color="black", fill=False)
             ax.add_patch(rect)
         if args.numbers:
             xc = x + w / 2
             yc = y + h / 2
-            circle = mpatches.Circle((xc, yc), w / 5, color='salmon', alpha=0.5)
-            text = mtext.Text(
-                xc, yc, str(i), color='k', size=10, ha='center', va='center'
-            )
+            circle = mpatches.Circle((xc, yc), w / 5, color="salmon", alpha=0.5)
+            text = mtext.Text(xc, yc, str(i), color="k", size=10, ha="center", va="center")
             ax.add_patch(circle)
             ax.add_artist(text)
 
     plt.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

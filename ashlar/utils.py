@@ -1,14 +1,15 @@
 import functools
 import itertools
 import warnings
+
+import numpy as np
+import scipy.ndimage
 import skimage
 import skimage.restoration.uft
-import scipy.ndimage
-import numpy as np
-
 
 # Pre-calculate the Laplacian operator kernel. We'll always be using 2D images.
 _laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
+
 
 def whiten(img, sigma):
     img = skimage.img_as_float32(img)
@@ -38,23 +39,17 @@ def register(img1, img2, sigma, upsample=10):
     img2w = window(whiten(img2, sigma))
 
     shift = skimage.registration.phase_cross_correlation(
-        img1w,
-        img2w,
-        upsample_factor=upsample,
-        normalization=None
+        img1w, img2w, upsample_factor=upsample, normalization=None
     )[0]
 
-        # At this point we may have a shift in the wrong quadrant since the FFT
+    # At this point we may have a shift in the wrong quadrant since the FFT
     # assumes the signal is periodic. We test all four possibilities and return
     # the shift that gives the highest direct correlation (sum of products).
     shape = np.array(img1.shape)
     shift_pos = (shift + shape) % shape
     shift_neg = shift_pos - shape
     shifts = list(itertools.product(*zip(shift_pos, shift_neg)))
-    correlations = [
-        np.abs(np.sum(img1w * scipy.ndimage.shift(img2w, s, order=0)))
-        for s in shifts
-    ]
+    correlations = [np.abs(np.sum(img1w * scipy.ndimage.shift(img2w, s, order=0))) for s in shifts]
     idx = np.argmax(correlations)
     shift = shifts[idx]
     correlation = correlations[idx]
@@ -81,9 +76,7 @@ def nccw(img1, img2, sigma):
             # difference is small enough, let it slide.
             error = 0
         else:
-            raise RuntimeError(
-                f"correlation > total_amplitude (diff={diff})"
-            )
+            raise RuntimeError(f"correlation > total_amplitude (diff={diff})")
     else:
         error = np.inf
     return error
@@ -93,7 +86,7 @@ def crop(img, offset, shape):
     # Note that this only crops to the nearest whole-pixel offset.
     start = offset.round().astype(int)
     end = start + shape
-    img = img[start[0]:end[0], start[1]:end[1]]
+    img = img[start[0] : end[0], start[1] : end[1]]
     return img
 
 
@@ -132,13 +125,21 @@ def fourier_shift(img, shift):
     np.sin(w, out=fshift.imag)
     np.negative(fshift.imag, out=fshift.imag)
     # Perform the FFT, multiply in-place by the shift matrix, then IFFT.
-    freq = pyfftw.builders.fft2(img, planner_effort='FFTW_ESTIMATE',
-                                avoid_copy=True, auto_align_input=True,
-                                auto_contiguous=True)()
+    freq = pyfftw.builders.fft2(
+        img,
+        planner_effort="FFTW_ESTIMATE",
+        avoid_copy=True,
+        auto_align_input=True,
+        auto_contiguous=True,
+    )()
     freq *= fshift
-    img_s = pyfftw.builders.ifft2(freq, planner_effort='FFTW_ESTIMATE',
-                                  avoid_copy=True, auto_align_input=True,
-                                  auto_contiguous=True)()
+    img_s = pyfftw.builders.ifft2(
+        freq,
+        planner_effort="FFTW_ESTIMATE",
+        avoid_copy=True,
+        auto_align_input=True,
+        auto_contiguous=True,
+    )()
     # Any non-zero imaginary component of the resulting array is due to
     # numerical error, so we can just return the real part.
     # FIXME need to zero out row(s) and column(s) we shifted away from,
@@ -153,7 +154,7 @@ def paste(target, img, pos, func=None):
     if np.any(pos >= target.shape[:2]) or np.any(pos + img.shape[:2] < 0):
         return
     pos_f, pos_i = np.modf(pos)
-    yi, xi = pos_i.astype('i8')
+    yi, xi = pos_i.astype("i8")
     # Clip img to the edges of the mosaic.
     if yi < 0:
         img = img[-yi:]
@@ -161,7 +162,7 @@ def paste(target, img, pos, func=None):
     if xi < 0:
         img = img[:, -xi:]
         xi = 0
-    target_slice = target[yi:yi+img.shape[0], xi:xi+img.shape[1]]
+    target_slice = target[yi : yi + img.shape[0], xi : xi + img.shape[1]]
     img = crop_like(img, target_slice)
     # Skip expensive sub-pixel shift if fractional position is zero.
     if pos_f.any():
@@ -169,7 +170,7 @@ def paste(target, img, pos, func=None):
             img = scipy.ndimage.shift(img, pos_f)
         else:
             for c in range(img.shape[2]):
-                img[...,c] = scipy.ndimage.shift(img[...,c], pos_f)
+                img[..., c] = scipy.ndimage.shift(img[..., c], pos_f)
         # For any axis where there is a non-zero subpixel shift, crop out the
         # last row or column of pixels on the "losing" side. These pixels will
         # be darker than normal and will introduce artifacts in most blending
@@ -217,10 +218,10 @@ def pastefunc_blend(target, img):
 
 
 def crop_like(img, target):
-    if (img.shape[0] > target.shape[0]):
-        img = img[:target.shape[0], :]
-    if (img.shape[1] > target.shape[1]):
-        img = img[:, :target.shape[1]]
+    if img.shape[0] > target.shape[0]:
+        img = img[: target.shape[0], :]
+    if img.shape[1] > target.shape[1]:
+        img = img[:, : target.shape[1]]
     return img
 
 
@@ -259,4 +260,5 @@ def imsave(fname, arr, **kwargs):
     # might just want to switch to tifffile.imsave.
     del kwargs["check_contrast"]
     import skimage.external.tifffile
+
     skimage.external.tifffile.imsave(fname, arr, **kwargs)

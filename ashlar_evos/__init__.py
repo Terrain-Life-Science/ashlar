@@ -13,8 +13,6 @@ Key features:
 
 __version__ = "0.1.0"
 
-from . import reader
-from . import registration
-from . import metadata
+from . import metadata, reader, registration
 
-__all__ = ['reader', 'registration', 'metadata']
+__all__ = ["reader", "registration", "metadata"]

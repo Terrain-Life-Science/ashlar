@@ -1,10 +1,11 @@
-import re
 import itertools
 import pathlib
+import re
+
 import numpy as np
 import skimage.io
-from . import reg
 
+from . import reg
 
 # Classes for reading datasets consisting of TIFF files with a naming pattern.
 # The pattern must include an integer series number, and optionally a channel
@@ -16,22 +17,25 @@ from . import reg
 def format_to_regex(s):
     # Translate a restricted subset of the "format" pattern language to
     # a matching regex with named capture.
-    s = s.replace('.', '\.')
-    s = s.replace('(', '\(')
-    s = s.replace(')', '\)')
-    regex = re.sub(r'{([^:}]+):?([^}]*)}', f2r_repl, s)
+    s = s.replace(".", r"\.")
+    s = s.replace("(", r"\(")
+    s = s.replace(")", r"\)")
+    regex = re.sub(r"{([^:}]+):?([^}]*)}", f2r_repl, s)
     return regex
 
+
 def f2r_repl(m):
-    r = '(?P<' + m.group(1) + '>.'
-    if re.match(r'^\d+$', m.group(2)):
-        r += '{' + m.group(2) + '}'
+    r = "(?P<" + m.group(1) + ">."
+    if re.match(r"^\d+$", m.group(2)):
+        r += "{" + m.group(2) + "}"
     else:
-        r += '*?'
-    r += ')'
+        r += "*?"
+    r += ")"
     return r
 
+
 rgb_suffixes = "jpg jpeg gif png".split()
+
 
 def _read(path, channel=None):
     suffix = path.suffix[1:]
@@ -55,11 +59,7 @@ def _read(path, channel=None):
         else:
             img = reader.read(0, channel)
     # Undo skimage's "helpful" reordering of 3- and 4-channel images.
-    if (
-        img.ndim == 3
-        and img.shape[2] in (3, 4)
-        and img.shape[0] not in (3, 4)
-    ):
+    if img.ndim == 3 and img.shape[2] in (3, 4) and img.shape[0] not in (3, 4):
         img = np.moveaxis(img, 2, 0)
     return img
 
@@ -67,7 +67,14 @@ def _read(path, channel=None):
 class FileSeriesMetadata(reg.PlateMetadata):
 
     def __init__(
-        self, path, pattern, overlap, width, height, layout, direction,
+        self,
+        path,
+        pattern,
+        overlap,
+        width,
+        height,
+        layout,
+        direction,
         pixel_size,
     ):
         # The pattern argument uses the Python Format String syntax with
@@ -98,9 +105,9 @@ class FileSeriesMetadata(reg.PlateMetadata):
             match = re.match(regex, p.name)
             if match:
                 gd = match.groupdict()
-                w = gd.get('well')
-                s = int(gd['series'])
-                c = gd.get('channel')
+                w = gd.get("well")
+                s = int(gd["series"])
+                c = gd.get("channel")
                 wells.add(w)
                 series.add(s)
                 channels.add(c)
@@ -109,9 +116,7 @@ class FileSeriesMetadata(reg.PlateMetadata):
         if len(self.filename_components) != len(wells) * len(series) * len(channels):
             raise Exception("Missing images detected")
         # Build sorted list of (well, series) tuples for all wells.
-        self.all_series = sorted(set(
-            k[:2] for k in self.filename_components.keys()
-        ))
+        self.all_series = sorted(set(k[:2] for k in self.filename_components.keys()))
         self.well_map = dict(enumerate(sorted(wells)))
         self._actual_num_images = len(series) * len(wells)
         self.channel_map = dict(enumerate(sorted(channels)))
@@ -124,7 +129,7 @@ class FileSeriesMetadata(reg.PlateMetadata):
         self.multi_channel_tiles = False
         # Handle multi-channel tiles (pattern must not include channel).
         if len(self.channel_map) == 1 and img.ndim == 3:
-            self.channel_map = {c: None for c in range(img.shape[0])}
+            self.channel_map = dict.fromkeys(range(img.shape[0]))
             self.multi_channel_tiles = True
         self._num_channels = len(self.channel_map)
 
@@ -148,7 +153,10 @@ class FileSeriesMetadata(reg.PlateMetadata):
     @property
     def plate_well_series(self):
         return [
-            list([a[0] for a in v] for k, v in itertools.groupby(enumerate(self.all_series), key=lambda x: x[1][0]))
+            list(
+                [a[0] for a in v]
+                for k, v in itertools.groupby(enumerate(self.all_series), key=lambda x: x[1][0])
+            )
         ]
 
     def plate_name(self, i):
@@ -197,8 +205,17 @@ class FileSeriesMetadata(reg.PlateMetadata):
 class FileSeriesReader(reg.PlateReader):
 
     def __init__(
-        self, path, pattern, overlap, width, height, layout="raster",
-        direction="horizontal", pixel_size=1.0, plate=None, well=None
+        self,
+        path,
+        pattern,
+        overlap,
+        width,
+        height,
+        layout="raster",
+        direction="horizontal",
+        pixel_size=1.0,
+        plate=None,
+        well=None,
     ):
         # See FileSeriesMetadata for an explanation of the pattern syntax.
         if layout not in ("raster", "snake"):
@@ -208,8 +225,7 @@ class FileSeriesReader(reg.PlateReader):
         self.path = pathlib.Path(path)
         self.pattern = pattern
         self.metadata = FileSeriesMetadata(
-            self.path, self.pattern, overlap, width, height, layout, direction,
-            pixel_size
+            self.path, self.pattern, overlap, width, height, layout, direction, pixel_size
         )
         self.metadata.set_active_plate_well(plate, well)
 
