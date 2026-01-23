@@ -112,6 +112,10 @@ def benchmark_registration(
     end_time = time.time()
     total_time = end_time - start_time
 
+    # Get performance metrics first (needed for memory profile)
+    pipeline.performance_monitor.finalize()
+    perf_metrics = pipeline.performance_monitor.metrics
+
     # Collect final memory usage
     if psutil:
         try:
@@ -132,10 +136,6 @@ def benchmark_registration(
         # Use performance monitor's memory tracking
         memory_profile["peak_mb"] = perf_metrics.peak_memory_mb
         memory_profile["final_mb"] = perf_metrics.current_memory_mb
-
-    # Get performance metrics
-    pipeline.performance_monitor.finalize()
-    perf_metrics = pipeline.performance_monitor.metrics
 
     # Collect benchmark results
     benchmark_results = {
