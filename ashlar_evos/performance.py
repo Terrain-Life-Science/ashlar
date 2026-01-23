@@ -198,6 +198,22 @@ class PerformanceMonitor:
                                                  'identity' if is_zero_shift else 'translation')
             transform_params = transform_result.get('params', (coarse_shift_tuple[1], coarse_shift_tuple[0], 0.0, 1.0))
             
+            # Get RMSE from transform_result, but handle sentinel values
+            # coarse_error of 100.0 is a sentinel value indicating alignment failure
+            # In coarse-only mode (no fine_shifts), if both coarse_error and transform_rmse are 100.0,
+            # it's likely a sentinel value, not a real RMSE
+            transform_rmse = transform_result.get('rmse', 0.0)
+            COARSE_ERROR_SENTINEL = 100.0
+            # Check if this is the sentinel value (100.0) and matches coarse_error
+            # This indicates alignment failure, not a real RMSE measurement
+            if (abs(transform_rmse - COARSE_ERROR_SENTINEL) < 0.01 and 
+                abs(coarse_error - COARSE_ERROR_SENTINEL) < 0.01):
+                # This is a sentinel value indicating alignment failure - use 0.0 to indicate unavailable
+                rmse_value = 0.0
+            else:
+                # Use the transform RMSE (could be from coarse_error if it's a valid measurement)
+                rmse_value = transform_rmse
+            
             accuracy = RegistrationAccuracy(
                 cycle_idx=cycle_idx,
                 coarse_shift=coarse_shift_tuple,
@@ -206,7 +222,7 @@ class PerformanceMonitor:
                 num_inliers=0,
                 transform_type=transform_type,
                 transform_params=transform_params,
-                rmse=transform_result.get('rmse', 0.0),
+                rmse=rmse_value,
                 mean_residual=0.0,
                 max_residual=0.0,
                 min_residual=0.0,

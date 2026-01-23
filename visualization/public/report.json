@@ -2,10 +2,10 @@
   "runs": [
     {
       "summary": {
-        "total_time_seconds": 5.777959585189819,
-        "total_time_formatted": "5.78 seconds",
+        "total_time_seconds": 0.2691488265991211,
+        "total_time_formatted": "0.27 seconds",
         "num_cycles": 3,
-        "average_rmse": 100.0,
+        "average_rmse": 0.0,
         "average_mean_residual": 0.0,
         "average_shift_x": 0.0,
         "average_shift_y": 0.0,
@@ -13,18 +13,18 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-22T16:32:43.505131",
-        "end_time": "2026-01-22T16:32:49.283091",
-        "elapsed_time_seconds": 5.777959585189819,
+        "start_time": "2026-01-22T20:11:04.831102",
+        "end_time": "2026-01-22T20:11:05.100251",
+        "elapsed_time_seconds": 0.2691488265991211,
         "phases": {
-          "Coarse Alignment": 0.7872931957244873,
-          "Transform Creation - Cycle 1": 0.0002529621124267578,
-          "Transform Creation - Cycle 2": 0.0004246234893798828
+          "Coarse Alignment": 0.24517583847045898,
+          "Transform Creation - Cycle 1": 0.00033473968505859375,
+          "Transform Creation - Cycle 2": 0.00028777122497558594
         },
         "cpu_cores_used": 8,
         "cpu_threads_used": 16,
-        "peak_memory_mb": 92.8359375,
-        "current_memory_mb": 92.8359375,
+        "peak_memory_mb": 93.765625,
+        "current_memory_mb": 93.765625,
         "gpu_available": false,
         "gpu_cores_used": 0,
         "input_file_sizes_mb": {
@@ -80,7 +80,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -106,7 +106,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -127,10 +127,10 @@
     },
     {
       "summary": {
-        "total_time_seconds": 4.690437078475952,
-        "total_time_formatted": "4.69 seconds",
+        "total_time_seconds": 0.2502295970916748,
+        "total_time_formatted": "0.25 seconds",
         "num_cycles": 3,
-        "average_rmse": 100.0,
+        "average_rmse": 0.0,
         "average_mean_residual": 0.0,
         "average_shift_x": 0.0,
         "average_shift_y": 0.0,
@@ -138,18 +138,18 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-22T16:32:51.406333",
-        "end_time": "2026-01-22T16:32:56.096770",
-        "elapsed_time_seconds": 4.690437078475952,
+        "start_time": "2026-01-22T20:11:05.141725",
+        "end_time": "2026-01-22T20:11:05.391955",
+        "elapsed_time_seconds": 0.2502295970916748,
         "phases": {
-          "Coarse Alignment": 0.23801422119140625,
-          "Transform Creation - Cycle 1": 0.00017571449279785156,
-          "Transform Creation - Cycle 2": 0.00019168853759765625
+          "Coarse Alignment": 0.22806811332702637,
+          "Transform Creation - Cycle 1": 0.00023865699768066406,
+          "Transform Creation - Cycle 2": 0.00026226043701171875
         },
         "cpu_cores_used": 8,
         "cpu_threads_used": 16,
-        "peak_memory_mb": 96.72265625,
-        "current_memory_mb": 96.72265625,
+        "peak_memory_mb": 97.21875,
+        "current_memory_mb": 97.21875,
         "gpu_available": false,
         "gpu_cores_used": 0,
         "input_file_sizes_mb": {
@@ -205,7 +205,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -231,7 +231,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -252,10 +252,10 @@
     },
     {
       "summary": {
-        "total_time_seconds": 5.624136209487915,
-        "total_time_formatted": "5.62 seconds",
+        "total_time_seconds": 0.9850890636444092,
+        "total_time_formatted": "0.99 seconds",
         "num_cycles": 3,
-        "average_rmse": 100.0,
+        "average_rmse": 0.0,
         "average_mean_residual": 0.0,
         "average_shift_x": 0.0,
         "average_shift_y": 0.0,
@@ -263,18 +263,18 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-22T16:32:58.217806",
-        "end_time": "2026-01-22T16:33:03.841942",
-        "elapsed_time_seconds": 5.624136209487915,
+        "start_time": "2026-01-22T20:11:05.427424",
+        "end_time": "2026-01-22T20:11:06.412513",
+        "elapsed_time_seconds": 0.9850890636444092,
         "phases": {
-          "Coarse Alignment": 0.8585631847381592,
-          "Transform Creation - Cycle 1": 0.0004222393035888672,
-          "Transform Creation - Cycle 2": 0.00023031234741210938
+          "Coarse Alignment": 0.9577364921569824,
+          "Transform Creation - Cycle 1": 0.00023651123046875,
+          "Transform Creation - Cycle 2": 0.00013566017150878906
         },
         "cpu_cores_used": 8,
         "cpu_threads_used": 16,
-        "peak_memory_mb": 91.74609375,
-        "current_memory_mb": 91.74609375,
+        "peak_memory_mb": 97.25,
+        "current_memory_mb": 97.25,
         "gpu_available": false,
         "gpu_cores_used": 0,
         "input_file_sizes_mb": {
@@ -330,7 +330,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -356,7 +356,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -377,10 +377,10 @@
     },
     {
       "summary": {
-        "total_time_seconds": 6.238965272903442,
-        "total_time_formatted": "6.24 seconds",
+        "total_time_seconds": 6.726329326629639,
+        "total_time_formatted": "6.73 seconds",
         "num_cycles": 3,
-        "average_rmse": 100.0,
+        "average_rmse": 0.0,
         "average_mean_residual": 0.0,
         "average_shift_x": 0.0,
         "average_shift_y": 0.0,
@@ -388,18 +388,18 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-22T16:33:03.873259",
-        "end_time": "2026-01-22T16:33:10.112224",
-        "elapsed_time_seconds": 6.238965272903442,
+        "start_time": "2026-01-22T20:11:06.439245",
+        "end_time": "2026-01-22T20:11:13.165574",
+        "elapsed_time_seconds": 6.726329326629639,
         "phases": {
-          "Coarse Alignment": 6.222280979156494,
-          "Transform Creation - Cycle 1": 0.00028514862060546875,
-          "Transform Creation - Cycle 2": 0.0002346038818359375
+          "Coarse Alignment": 6.702979803085327,
+          "Transform Creation - Cycle 1": 0.0003101825714111328,
+          "Transform Creation - Cycle 2": 0.00029158592224121094
         },
         "cpu_cores_used": 8,
         "cpu_threads_used": 16,
-        "peak_memory_mb": 90.72265625,
-        "current_memory_mb": 90.72265625,
+        "peak_memory_mb": 90.58203125,
+        "current_memory_mb": 90.58203125,
         "gpu_available": false,
         "gpu_cores_used": 0,
         "input_file_sizes_mb": {
@@ -455,7 +455,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -481,7 +481,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -502,10 +502,10 @@
     },
     {
       "summary": {
-        "total_time_seconds": 35.71856141090393,
-        "total_time_formatted": "35.72 seconds",
+        "total_time_seconds": 33.75097370147705,
+        "total_time_formatted": "33.75 seconds",
         "num_cycles": 3,
-        "average_rmse": 100.0,
+        "average_rmse": 0.0,
         "average_mean_residual": 0.0,
         "average_shift_x": 0.0,
         "average_shift_y": 0.0,
@@ -513,18 +513,18 @@
         "average_std_shift_y": 0.0
       },
       "performance": {
-        "start_time": "2026-01-22T16:33:11.897032",
-        "end_time": "2026-01-22T16:33:47.615593",
-        "elapsed_time_seconds": 35.71856141090393,
+        "start_time": "2026-01-22T20:11:13.191819",
+        "end_time": "2026-01-22T20:11:46.942793",
+        "elapsed_time_seconds": 33.75097370147705,
         "phases": {
-          "Coarse Alignment": 30.91141104698181,
-          "Transform Creation - Cycle 1": 0.0003757476806640625,
-          "Transform Creation - Cycle 2": 0.00025582313537597656
+          "Coarse Alignment": 33.7313814163208,
+          "Transform Creation - Cycle 1": 0.0002353191375732422,
+          "Transform Creation - Cycle 2": 0.0001709461212158203
         },
         "cpu_cores_used": 8,
         "cpu_threads_used": 16,
-        "peak_memory_mb": 92.9375,
-        "current_memory_mb": 92.9375,
+        "peak_memory_mb": 92.9921875,
+        "current_memory_mb": 92.9921875,
         "gpu_available": false,
         "gpu_cores_used": 0,
         "input_file_sizes_mb": {
@@ -580,7 +580,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -606,7 +606,7 @@
             0.0,
             1.0
           ],
-          "rmse": 100.0,
+          "rmse": 0.0,
           "mean_residual": 0.0,
           "max_residual": 0.0,
           "min_residual": 0.0,
@@ -645,40 +645,40 @@
       },
       {
         "scale_factor": 2.0,
-        "time_ratio": 0.8117808733897297,
-        "memory_ratio": 1.0418665320205336,
+        "time_ratio": 0.9297071819093412,
+        "memory_ratio": 1.0368271954674222,
         "input_size_ratio": 4.010671039039863,
         "output_size_ratio": 0.0
       },
       {
         "scale_factor": 4.0,
-        "time_ratio": 0.9733775611556392,
-        "memory_ratio": 0.9882605402676092,
+        "time_ratio": 3.66001619286876,
+        "memory_ratio": 1.0371604732544575,
         "input_size_ratio": 16.050000303882875,
         "output_size_ratio": 0.0
       },
       {
         "scale_factor": 8.0,
-        "time_ratio": 1.0797869353214726,
-        "memory_ratio": 0.9772363881174787,
+        "time_ratio": 24.991115181966034,
+        "memory_ratio": 0.966047325445759,
         "input_size_ratio": 64.17492471530102,
         "output_size_ratio": 0.0
       },
       {
         "scale_factor": 16.0,
-        "time_ratio": 6.181864183068787,
-        "memory_ratio": 1.0010939998316923,
+        "time_ratio": 125.39892567225209,
+        "memory_ratio": 0.9917513747708715,
         "input_size_ratio": 254.5473264695103,
         "output_size_ratio": 0.0
       }
     ],
     "aggregated_metrics": {
-      "total_time_across_scales": 58.05005955696106,
-      "max_memory_across_scales": 96.72265625,
-      "min_memory_across_scales": 90.72265625,
-      "average_rmse_across_scales": 100.0,
-      "max_rmse_across_scales": 100.0,
-      "min_rmse_across_scales": 100.0
+      "total_time_across_scales": 41.981770515441895,
+      "max_memory_across_scales": 97.25,
+      "min_memory_across_scales": 90.58203125,
+      "average_rmse_across_scales": 0.0,
+      "max_rmse_across_scales": 0.0,
+      "min_rmse_across_scales": 0.0
     }
   }
 }

@@ -179,7 +179,14 @@ function ScalingAnalysis({ data }) {
                 label={{ value: 'RMSE (pixels)', angle: -90, position: 'insideLeft' }}
               />
               <Tooltip 
-                formatter={(value) => [`${parseFloat(value).toFixed(4)} px`, 'RMSE']}
+                formatter={(value) => {
+                  const val = parseFloat(value)
+                  // Check if this is a sentinel value (100.0) indicating alignment failure
+                  if (Math.abs(val - 100.0) < 0.01) {
+                    return ['N/A (alignment failed)', 'RMSE']
+                  }
+                  return [`${val.toFixed(4)} px`, 'RMSE']
+                }}
                 labelFormatter={(label) => `Scale: ${label}`}
               />
               <Legend />
@@ -194,11 +201,16 @@ function ScalingAnalysis({ data }) {
             </LineChart>
           </ResponsiveContainer>
           <div className="chart-summary">
-            {scalingData.map(run => (
-              <p key={run.scale}>
-                <strong>{run.scale}:</strong> {run.averageRMSE.toFixed(4)} pixels
-              </p>
-            ))}
+            {scalingData.map(run => {
+              const rmse = run.averageRMSE
+              // Check if this is a sentinel value (100.0) indicating alignment failure
+              const isSentinel = Math.abs(rmse - 100.0) < 0.01
+              return (
+                <p key={run.scale}>
+                  <strong>{run.scale}:</strong> {isSentinel ? 'N/A (alignment failed)' : `${rmse.toFixed(4)} pixels`}
+                </p>
+              )
+            })}
           </div>
         </div>
 
