@@ -878,6 +878,7 @@ class EvosRegistrationPipeline:
                 f"  - Image quality issues\n"
                 f"  - Coordinate system mismatch",
                 UserWarning,
+                stacklevel=2,
             )
             return False
 
