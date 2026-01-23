@@ -805,9 +805,7 @@ class EdgeAligner:
         plt.imshow(corr, vmin=np.exp(-10))
         cbar = plt.colorbar()
         cbar.ax.yaxis.set_major_locator(plt.FixedLocator(cbar.mappable.get_clim()))
-        cbar.ax.yaxis.set_major_formatter(
-            plt.FuncFormatter(lambda x, pos: f"{-np.log(x):.2f}")
-        )
+        cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, pos: f"{-np.log(x):.2f}"))
         origin = np.array(corr.shape) // 2
         plt.plot(origin[1], origin[0], "r+")
         # FIXME This is wrong when t1 > t2.
